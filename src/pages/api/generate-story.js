@@ -1,73 +1,104 @@
+// pages/api/generate-story.js - VERSÃO CORRIGIDA PARA VERCEL
 import OpenAI from "openai";
-import prisma from '@/lib/prisma';
 
-const openai = new OpenAI();
+// Inicializa o cliente OpenAI usando a variável do Vercel
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export default async function handler(req, res) {
+  // 1. Só aceita requisições POST
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido' });
+  }
 
-    // Get the inputs for the story
-    const { mainCharacter, plot, ending, genre, literature } = req.body;
- 
+  // 2. Pega os dados do corpo da requisição
+  const { mainCharacter, plot, ending, genre, literature } = req.body;
 
+  // 3. Validação simples
+  if (!mainCharacter || !plot || !ending) {
+    return res.status(400).json({ error: 'Personagem, enredo e desfecho são obrigatórios.' });
+  }
 
-    // Replace with your prompt:
-    const prompt = `Create a unique and detailed ${literature} between 300 and 400 words that includes the following elements: a main character described as ${mainCharacter}, a plot involving ${plot}, and an ending where ${ending}. The genre of the ${literature} is ${genre}. Ensure that the ${literature} is engaging, with vivid descriptions, in brazilian portuguese and a clear narrative structure that ties together all three components in a creative way.`;
-    
-    try {
-        const messages = [
-            { role: "system", content: "You are a creative story writer." },
-            { role: "user", content: prompt }
-        ];
+  // 4. Verificação CRÍTICA da API Key
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('ERRO: OPENAI_API_KEY não está definida no ambiente Vercel.');
+    return res.status(500).json({ error: 'Configuração do servidor incompleta.' });
+  }
 
-        // Generate the text with GPT-4o
-        // Messages in ChatGPT can have different roles, see the documentation for the available  
-        // options: https://platform.openai.com/docs/api-reference/chat/create
-        const completion = await openai.chat.completions.create({
-            messages: messages,
-            model: "gpt-4o",
-        });
+  try {
+    console.log('Iniciando geração para:', { mainCharacter, plot, ending });
 
-        const story = completion.choices[0].message.content;
+    // === 5. GERAR A HISTÓRIA COM GPT ===
+    const gptResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "Você é um escritor criativo especializado em português brasileiro."
+        },
+        {
+          role: "user",
+          content: `Crie um(a) ${literature} no gênero ${genre} entre 250 e 350 palavras em português do Brasil. Deve incluir: 
+          - Personagem principal: ${mainCharacter}
+          - Enredo central: ${plot}
+          - Desfecho: ${ending}
+          Seja criativo, descritivo e garanta uma narrativa coesa.`
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.8,
+    });
 
-        // Add the generated story to the list of messages
-        messages.push(completion.choices[0].message);
+    const story = gptResponse.choices[0].message.content;
+    console.log('História gerada com sucesso.');
 
-        // Now add a message to generate a prompt for generating the illustration
-        // messages.push({ role: "user", content: "Now give me a short prompt for an illustration for this story I can provide to DALL-E 3. Output the prompt and no other information." });
-           messages.push({ role: "user", content: "Now give me a short prompt for 4 illustrations (Illustration 1 to Text-1, Illustration 2 to Text-2, Illustration 3 to Text-3, and Illustration 4 to Text-4 ) for this story I can provide to DALL-E 3. Output the prompt and no other information." });
+    // === 6. GERAR PROMPT PARA ILUSTRAÇÃO ===
+    const dallePromptResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "Você cria prompts concisos para o DALL-E 3." },
+        { role: "user", content: `Gere UM único prompt em inglês para uma ilustração baseada nesta história: ${story}. O prompt deve ser detalhado, mencionar estilo artístico (coerente com ${genre}) e ser apropriado para o DALL-E 3. Responda apenas com o prompt.` }
+      ],
+      max_tokens: 150,
+    });
+    const dallePrompt = dallePromptResponse.choices[0].message.content;
+    console.log('Prompt para ilustração gerado:', dallePrompt);
 
-        // usar aQUI messages.push({ role: "user", content: "Now give me a short prompt for a diagram with branches and connections I can provide to DALL-E 3. Output the prompt and other information." });
+    // === 7. GERAR A ILUSTRAÇÃO COM DALL-E ===
+    const imageResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: dallePrompt,
+      size: "1024x1024",
+      quality: "standard",
+      n: 1,
+      response_format: "b64_json", // Importante para receber a imagem em base64
+    });
 
+    const illustrationb64 = imageResponse.data[0].b64_json;
+    console.log('Ilustração gerada com sucesso.');
 
-        // and also for a diagram with branches and connections
+    // === 8. RETORNAR SUCESSO (SEM SALVAR NO BANCO) ===
+    res.status(200).json({
+      success: true,
+      story: story,
+      illustrationb64: illustrationb64,
+    });
 
-        // Generate the prompt that describes the illustration we want to generate with DALL-E
-        const dallePromptCompletion = await openai.chat.completions.create({
-            messages: messages,
-            model: "gpt-4o",
-        });
-        const dallePrompt = dallePromptCompletion.choices[0].message.content;
+  } catch (error) {
+    // Log detalhado do erro (aparecerá nos logs do Vercel)
+    console.error('ERRO NA API generate-story:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      status: error.status
+    });
 
-        // Generate the illustration
-        const illustration = await openai.images.generate({ 
-            model: "dall-e-3", 
-            prompt: dallePrompt,
-            response_format: "b64_json"
-        });
-
-        const illustrationb64 = illustration.data[0].b64_json;
-
-        // Save the story to the database
-        await prisma.story.create({
-            data: {
-                text: story,
-                illustrationb64: illustrationb64
-            }
-        });
-        
-        // Return the story and illustration to the UI
-        res.status(200).json({ story, illustrationb64 });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to generate story' });
-    }
+    // Resposta de erro mais clara para o frontend
+    res.status(500).json({
+      error: 'Falha ao gerar o conteúdo com IA',
+      internalError: error.message,
+      suggestion: 'Verifique a chave da OpenAI e os logs do servidor.'
+    });
+  }
 }

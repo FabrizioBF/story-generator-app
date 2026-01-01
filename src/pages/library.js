@@ -1,6 +1,5 @@
 import { useState } from 'react';
-//import prisma from '@/lib/prisma'; linha original
-import prisma from '@/lib/db' // linha adicionada
+import prisma from '@/lib/prisma'; //linha original
 
 export async function getServerSideProps() {
   const stories = await prisma.story.findMany();
