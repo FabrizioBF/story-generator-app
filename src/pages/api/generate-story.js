@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       model: "gpt-4o",
       messages: [
         { role: "system", content: "Você cria prompts concisos para o DALL-E 3." },
-        { role: "user", content: `Gere UM único prompt em inglês para uma ilustração baseada nesta história: ${story}. O prompt deve ser detalhado, mencionar estilo artístico (coerente com ${genre}) e ser apropriado para o DALL-E 3. Responda apenas com o prompt.` }
+        { role: "user", content: `Gere UM único prompt em inglês para 4 ilustrações baseada nesta história: ${story}. O prompt deve ser detalhado, mencionar estilo artístico (coerente com ${genre}) e ser apropriado para o DALL-E 3. Responda apenas com o prompt.` }
       ],
       max_tokens: 150,
     });
