@@ -6,8 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")  # O Vercel vai fornecer essa URL automaticamente
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model Story {
