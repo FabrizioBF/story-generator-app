@@ -1,5 +1,6 @@
 // pages/api/generate-story.js - VERSÃO CORRIGIDA PARA VERCEL
 import OpenAI from "openai";
+import prisma from '@/lib/prisma';
 
 // Inicializa o cliente OpenAI usando a variável do Vercel
 const openai = new OpenAI({
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
       model: "gpt-4o",
       messages: [
         { role: "system", content: "Você cria prompts concisos para o DALL-E 3." },
-        { role: "user", content: `Gere UM único prompt em inglês para 4 ilustrações baseada nesta história: ${story}. O prompt deve ser detalhado, mencionar estilo artístico (coerente com ${genre}) e ser apropriado para o DALL-E 3. Responda apenas com o prompt.` }
+        { role: "user", content: `Gere UM único prompt em português do Brasil para criar 4 ilustrações baseada nesta história: ${story}. O prompt deve ser detalhado, mencionar estilo artístico (coerente com ${genre}) e ser apropriado para o DALL-E 3. Responda apenas com o prompt.` }
       ],
       max_tokens: 150,
     });
@@ -84,6 +85,13 @@ export default async function handler(req, res) {
       story: story,
       illustrationb64: illustrationb64,
     });
+        // Save the story to the database
+        await prisma.story.create({
+            data: {
+                text: story,
+                illustrationb64: illustrationb64
+            }
+        });
 
   } catch (error) {
     // Log detalhado do erro (aparecerá nos logs do Vercel)
