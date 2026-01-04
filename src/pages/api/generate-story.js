@@ -157,7 +157,7 @@ export default async function handler(req, res) {
           5. Seja criativo, descritivo e mantenha uma narrativa coesa.`
         }
       ],
-      max_tokens: 150,
+      //max_tokens: 150,
       temperature: 0.8,
     });
 
