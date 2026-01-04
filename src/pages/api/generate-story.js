@@ -157,7 +157,7 @@ export default async function handler(req, res) {
           5. Seja criativo, descritivo e mantenha uma narrativa coesa.`
         }
       ],
-      max_tokens: 1000,
+      max_tokens: 150,
       temperature: 0.8,
     });
 
@@ -180,12 +180,12 @@ export default async function handler(req, res) {
         },
         { 
           role: "user", 
-          content: `Crie UM prompt detalhado em português para ilustrar esta história: ${story.substring(0, 500)}...
+          content: `Crie UM prompt detalhado em português para criar 4 ilustrações sobre essa história: ${story.substring(0, 500)}...
           Gênero: ${genre}. O prompt deve mencionar estilo artístico e ser apropriado para DALL-E 3.
           Responda APENAS com o prompt.` 
         }
       ],
-      max_tokens: 200,
+      max_tokens: 150,
     });
     
     const dallePrompt = dallePromptResponse.choices[0].message.content;
@@ -195,7 +195,7 @@ export default async function handler(req, res) {
     const imageResponse = await openai.images.generate({
       model: "dall-e-3",
       prompt: dallePrompt,
-      size: "1024x1024",
+      size: "800x800",
       quality: "standard",
       n: 1,
       response_format: "b64_json",

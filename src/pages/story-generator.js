@@ -120,7 +120,7 @@ export default function StoryGenerator() {
           </select>
         </div>
         <button type="submit" disabled={isSubmitting} style={styles.button}>
-          {isSubmitting ? 'Generando...' : 'Gerar'}
+          {isSubmitting ? 'Gerando...' : 'Gerar'}
         </button>
       </form>
       {story && (
