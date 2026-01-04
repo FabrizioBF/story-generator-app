@@ -13,7 +13,7 @@ export default function HomePage() {
 "Cecilia Cristinni da Silva Oliveira",
 "Emilly Hidiquel da Silva Vasconcelos",
 "Emilly Laís Rufino Ramos",
-"Prof. Fabrízio Barbosa Farias (Orientador)",
+"Prof. Fabrízio Barbosa Farias (orientador)",
 "Geovana Larissa Xavier de Melo",
 "Iago Leonam de Gusmão Pereira",
 "João Victor Cosmo de Lima",
