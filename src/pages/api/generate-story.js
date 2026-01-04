@@ -195,7 +195,7 @@ export default async function handler(req, res) {
     const imageResponse = await openai.images.generate({
       model: "dall-e-3",
       prompt: dallePrompt,
-      size: "800x800",
+      size: "1024x1024",
       quality: "standard",
       n: 1,
       response_format: "b64_json",
