@@ -45,10 +45,16 @@ export async function getServerSideProps() {
     console.log('✅ Conexão com Neon estabelecida');
 
     // Buscar histórias
-    const stories = await prisma.story.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 50 // Limite para performance
-    });
+   // const stories = await prisma.story.findMany({
+     // orderBy: { createdAt: 'desc' },
+      //take: 50 // Limite para performance
+    //});
+
+    const stories = await prisma.story.findMany();
+  return {
+    props: { stories },
+  };
+
     
     console.log(`📖 ${stories.length} histórias encontradas`);
     
