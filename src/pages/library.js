@@ -89,7 +89,7 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
   if (error) {
     return (
       <div className="container">
-        <h1>📚 Biblioteca de Histórias</h1>
+        <h1>📚 Biblioteca de Textos</h1>
         
         <div style={{ 
           backgroundColor: '#fff3cd', 
@@ -156,7 +156,7 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
   if (stories.length === 0) {
     return (
       <div className="container">
-        <h1>📚 Biblioteca de Histórias</h1>
+        <h1>📚 Biblioteca de Textos</h1>
         
         <div style={{ 
           textAlign: 'center', 
@@ -166,8 +166,8 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
           marginTop: '30px'
         }}>
           <div style={{ fontSize: '60px', marginBottom: '20px' }}>📭</div>
-          <h3>Nenhuma história encontrada</h3>
-          <p>As histórias geradas aparecerão aqui automaticamente.</p>
+          <h3>Nenhum texto encontrado</h3>
+          <p>Os textos gerados aparecerão aqui automaticamente.</p>
           <p><small>Última verificação: {new Date(timestamp).toLocaleString()}</small></p>
           
           <div style={{ marginTop: '30px' }}>
@@ -182,7 +182,7 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
                 borderRadius: '5px'
               }}
             >
-              ➕ Criar Primeira História
+              ➕ Criar Primeiro Texto
             </a>
           </div>
         </div>
@@ -198,12 +198,12 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
     );
   }
 
-  // Se há histórias, mostrar normalmente
+  // Se há textos, mostrar normalmente
   const { text, illustrationb64, createdAt } = stories[currentStoryIndex];
 
   return (
     <div className="container">
-      <h1>📚 Biblioteca de Histórias</h1>
+      <h1>📚 Biblioteca de Textos</h1>
       
       <div style={{ 
         marginBottom: '20px', 
@@ -212,7 +212,7 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
         borderRadius: '5px',
         fontSize: '14px'
       }}>
-        <strong>História {currentStoryIndex + 1} de {stories.length}</strong>
+        <strong>Texto {currentStoryIndex + 1} de {stories.length}</strong>
         {createdAt && (
           <span style={{ float: 'right' }}>
             📅 {new Date(createdAt).toLocaleDateString('pt-BR')}
@@ -236,7 +236,7 @@ export default function StoriesPage({ stories, error, timestamp, debug }) {
             marginTop: '20px',
             textAlign: 'center'
           }}>
-            🎨 Esta história não tem ilustração
+            🎨 Este texto não tem ilustração
           </div>
         )}
       </div>
