@@ -1,461 +1,286 @@
-// pages/api/generate-story.js - VERSÃO OTIMIZADA COM RESOLUÇÃO REDUZIDA
+// pages/api/generate-story.js - VERSÃO SIMPLIFICADA
 import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ==================== CONFIGURAÇÕES OTIMIZADAS ====================
-const IMAGE_CONFIG = {
-  GENERATION_SIZE: "256x256",       // REDUZIDO: 256x256 em vez de 512x512
-  MAX_THUMBNAIL_KB: 50,            // REDUZIDO: Máximo 50KB no banco
-  MAX_STORY_LENGTH: 8000,          // REDUZIDO: Máximo 8K caracteres no banco
-  MAX_IMAGE_SIZE_KB: 100,          // Máximo 100KB para imagem completa
-  COMPRESSION_QUALITY: 0.5,        // REDUZIDO: Qualidade 50% para thumbnails
+// ==================== CONFIGURAÇÕES SIMPLES ====================
+const CONFIG = {
+  // Imagem
+  IMAGE_SIZE: "256x256",           // Pequeno desde o início
+  MAX_IMAGE_LENGTH: 40000,         // ~40KB máximo no banco
+  
+  // Texto
+  MAX_STORY_LENGTH: 8000,
+  
+  // Controle
+  ENABLE_IMAGES: true              // Pode desligar para testes
 };
 
-// ==================== FUNÇÕES AUXILIARES ====================
-
-// Função para criar thumbnail MUITO pequena
-async function createOptimizedThumbnail(base64String) {
+// ==================== COMPRESSÃO SUPER SIMPLES ====================
+function simpleImageCompression(base64String) {
+  console.log('⚡ Compressão simples iniciada...');
+  
   if (!base64String || base64String.length === 0) {
-    console.log('❌ String base64 vazia');
+    console.log('❌ String vazia');
     return "";
   }
-
-  console.log('🖼️ Processando imagem para thumbnail otimizada...');
   
   const originalSizeKB = Math.round(base64String.length / 1024);
-  console.log(`📊 Tamanho original da imagem: ${originalSizeKB}KB`);
+  console.log(`📊 Tamanho original: ${originalSizeKB}KB`);
   
-  // Se a imagem já for muito pequena (< 50KB), usar como está
-  if (originalSizeKB <= IMAGE_CONFIG.MAX_THUMBNAIL_KB) {
-    console.log(`✅ Imagem já pequena (${originalSizeKB}KB), usando como thumbnail`);
+  // Se já for pequeno, usar como está
+  if (originalSizeKB <= 30) { // Menos de 30KB
+    console.log(`✅ Já pequeno (${originalSizeKB}KB), mantendo como está`);
     return base64String;
   }
   
-  console.log(`⚠️  Imagem grande (${originalSizeKB}KB), criando thumbnail otimizada`);
+  // Método 1: Pegar apenas os primeiros caracteres (mais seguro)
+  const maxChars = CONFIG.MAX_IMAGE_LENGTH;
+  let compressed = base64String.substring(0, maxChars);
   
-  try {
-    // MÉTODO SIMPLIFICADO: Truncar a string base64 para reduzir tamanho
-    // Isso é uma solução prática para o projeto educacional
-    const maxBytes = IMAGE_CONFIG.MAX_THUMBNAIL_KB * 1024;
-    
-    // Pegar apenas os primeiros bytes (isso criará uma imagem menor)
-    const optimizedBase64 = base64String.substring(0, maxBytes);
-    const optimizedSizeKB = Math.round(optimizedBase64.length / 1024);
-    
-    console.log(`✅ Thumbnail otimizada criada: ${optimizedSizeKB}KB (redução de ${Math.round((originalSizeKB - optimizedSizeKB) / originalSizeKB * 100)}%)`);
-    
-    return optimizedBase64;
-    
-  } catch (error) {
-    console.error('❌ Erro ao criar thumbnail otimizada:', error.message);
-    return "";
-  }
+  const compressedSizeKB = Math.round(compressed.length / 1024);
+  console.log(`✅ Compressão básica: ${originalSizeKB}KB → ${compressedSizeKB}KB`);
+  
+  return compressed;
 }
 
-// Função para truncar texto se necessário
+// Função para criar placeholder mínimo
+function createTinyImage() {
+  // Imagem SVG mínima (menos de 1KB)
+  const svg = `<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" fill="#f0f0f0"/>
+    <text x="50" y="55" font-family="Arial" font-size="12" fill="#666" text-anchor="middle">🎨</text>
+  </svg>`;
+  
+  // Converter para base64
+  const base64 = Buffer.from(svg).toString('base64');
+  console.log(`📊 Placeholder criado: ${Math.round(base64.length / 1024)}KB`);
+  return base64;
+}
+
+// Funções auxiliares
 function truncateText(text, maxLength) {
+  if (!text) return "";
   if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength - 100) + '...\n\n[Texto otimizado para melhor performance]';
+  return text.substring(0, maxLength - 100) + '...';
 }
 
-// Função para validar e limpar dados do usuário
-function sanitizeUserInput(input, maxLength = 200) {
-  if (!input || typeof input !== 'string') return "";
-  return input.substring(0, Math.min(input.length, maxLength)).trim();
+function sanitizeInput(text) {
+  if (!text) return "";
+  return text.substring(0, 200).trim();
 }
 
-// ==================== FUNÇÃO DE SALVAMENTO OTIMIZADA ====================
-async function saveToDatabase(story, thumbnailb64, userInput) {
-  console.log('💾 Iniciando salvamento otimizado no banco de dados...');
+// ==================== SALVAR NO BANCO ====================
+async function saveStory(story, imageBase64, userInput) {
+  console.log('💾 Preparando para salvar...');
   
   if (!process.env.DATABASE_URL) {
-    console.log('❌ DATABASE_URL não configurada');
-    return { 
-      success: false, 
-      error: 'DATABASE_URL não configurada',
-      code: 'NO_DATABASE_URL'
-    };
+    return { success: false, error: 'Banco não configurado' };
   }
 
   try {
-    console.log('🔗 Conectando ao banco PostgreSQL...');
-    
     const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient({
-      datasources: { db: { url: process.env.DATABASE_URL } }
-    });
+    const prisma = new PrismaClient();
 
-    // Testar conexão
-    await prisma.$queryRaw`SELECT 1`;
-    console.log('✅ Conexão com banco estabelecida');
-
-    // Preparar dados otimizados para salvar
-    const truncatedStory = truncateText(story, IMAGE_CONFIG.MAX_STORY_LENGTH);
+    // Preparar dados
+    const finalStory = truncateText(story, CONFIG.MAX_STORY_LENGTH);
+    const finalImage = imageBase64 || createTinyImage();
     
-    // Verificar e otimizar thumbnail
-    let safeThumbnail = "";
-    if (thumbnailb64 && thumbnailb64.length > 0) {
-      const thumbnailKB = Math.round(thumbnailb64.length / 1024);
-      console.log(`📊 Thumbnail recebida: ${thumbnailKB}KB`);
-      
-      if (thumbnailKB <= IMAGE_CONFIG.MAX_THUMBNAIL_KB) {
-        safeThumbnail = thumbnailb64;
-        console.log(`✅ Thumbnail dentro do limite (${thumbnailKB}KB)`);
-      } else {
-        console.log(`⚠️  Thumbnail muito grande (${thumbnailKB}KB), não salvando`);
-        // Não salvar thumbnail se for muito grande
-      }
-    }
-
-    // Sanitizar dados do usuário
-    const sanitizedUserInput = {
-      mainCharacter: sanitizeUserInput(userInput.mainCharacter),
-      plot: sanitizeUserInput(userInput.plot),
-      ending: sanitizeUserInput(userInput.ending),
-      genre: sanitizeUserInput(userInput.genre),
-      literature: sanitizeUserInput(userInput.literature)
-    };
-
-    console.log('📝 Inserindo história otimizada no banco...');
+    // Verificar tamanho
+    const imageSizeKB = Math.round(finalImage.length / 1024);
+    console.log(`📊 Salvando imagem de: ${imageSizeKB}KB`);
     
+    // Tentar salvar com todos os campos
     try {
-      // Tentar salvar com todos os campos
       const result = await prisma.story.create({
         data: {
-          text: truncatedStory,
-          illustrationb64: safeThumbnail,
-          illustrationUrl: "",
-          mainCharacter: sanitizedUserInput.mainCharacter || "Não informado",
-          plot: sanitizedUserInput.plot || "Não informado",
-          ending: sanitizedUserInput.ending || "Não informado",
-          genre: sanitizedUserInput.genre || "Não informado",
-          literature: sanitizedUserInput.literature || "Não informado"
+          text: finalStory,
+          illustrationb64: finalImage,
+          mainCharacter: sanitizeInput(userInput.mainCharacter) || "Não informado",
+          plot: sanitizeInput(userInput.plot) || "Não informado",
+          ending: sanitizeInput(userInput.ending) || "Não informado",
+          genre: sanitizeInput(userInput.genre) || "Não informado",
+          literature: sanitizeInput(userInput.literature) || "Não informado"
         }
       });
-
-      await prisma.$disconnect();
       
-      console.log(`✅ História salva com sucesso! ID: ${result.id}`);
-      console.log(`📊 Dados salvos: Texto=${truncatedStory.length} chars, Thumbnail=${safeThumbnail.length > 0 ? Math.round(safeThumbnail.length/1024) + 'KB' : 'Nenhuma'}`);
+      console.log(`✅ Salvo! ID: ${result.id}, Imagem: ${imageSizeKB}KB`);
+      return { success: true, id: result.id, imageSizeKB };
       
-      return { 
-        success: true, 
-        id: result.id,
-        message: 'História salva no banco de dados',
-        hasThumbnail: safeThumbnail.length > 0
-      };
+    } catch (error) {
+      // Fallback: salvar apenas campos básicos
+      console.log('⚠️  Salvando apenas texto e imagem...');
       
-    } catch (schemaError) {
-      console.log('⚠️  Erro de schema, tentando inserir sem novos campos...');
-      
-      // Fallback: inserir apenas com campos básicos
       const result = await prisma.story.create({
         data: {
-          text: truncatedStory,
-          illustrationb64: safeThumbnail
+          text: finalStory,
+          illustrationb64: finalImage
         }
       });
-
-      await prisma.$disconnect();
       
-      console.log(`✅ História salva (campos básicos)! ID: ${result.id}`);
+      console.log(`✅ Salvo (básico): ID: ${result.id}`);
       return { 
         success: true, 
-        id: result.id,
-        message: 'História salva (estrutura básica)',
-        warning: 'Alguns campos não foram salvos',
-        hasThumbnail: safeThumbnail.length > 0
+        id: result.id, 
+        imageSizeKB,
+        warning: 'Alguns campos não salvos' 
       };
     }
     
-  } catch (dbError) {
-    console.error('❌ ERRO ao salvar no banco:', dbError.message);
-    
-    let userMessage = 'Erro ao salvar no banco de dados';
-    if (dbError.code === 'P2000') {
-      userMessage = 'Dados muito grandes para o banco. Tente com informações mais curtas.';
-    }
-    
-    return { 
-      success: false, 
-      error: dbError.message,
-      code: dbError.code,
-      userMessage: userMessage
-    };
+  } catch (error) {
+    console.error('❌ Erro no banco:', error.message);
+    return { success: false, error: error.message };
   }
 }
 
-// ==================== HANDLER PRINCIPAL OTIMIZADO ====================
+// ==================== HANDLER PRINCIPAL ====================
 export default async function handler(req, res) {
-  console.log('📨 === API generate-story chamada (versão otimizada) ===');
+  console.log('📨 Recebendo requisição...');
   
-  // 1. Verificar método HTTP
+  // Verificar método
   if (req.method !== 'POST') {
-    return res.status(405).json({ 
-      error: 'Método não permitido',
-      allowed: ['POST']
-    });
+    return res.status(405).json({ error: 'Apenas POST' });
   }
 
-  // 2. Extrair e sanitizar dados do corpo
+  // Validar dados
   const { mainCharacter, plot, ending, genre, literature } = req.body;
-  
-  // Sanitizar imediatamente
-  const sanitizedInput = {
-    mainCharacter: sanitizeUserInput(mainCharacter),
-    plot: sanitizeUserInput(plot),
-    ending: sanitizeUserInput(ending),
-    genre: sanitizeUserInput(genre),
-    literature: sanitizeUserInput(literature)
-  };
-  
-  console.log('📥 Dados recebidos (sanitizados):', {
-    mainCharacter: sanitizedInput.mainCharacter?.substring(0, 30) + '...',
-    plot: sanitizedInput.plot?.substring(0, 30) + '...',
-    ending: sanitizedInput.ending?.substring(0, 30) + '...',
-    genre: sanitizedInput.genre,
-    literature: sanitizedInput.literature
-  });
-
-  // 3. Validação básica
-  if (!sanitizedInput.mainCharacter || !sanitizedInput.plot || !sanitizedInput.ending) {
-    return res.status(400).json({ 
-      error: 'Campos obrigatórios faltando: personagem, enredo e desfecho'
-    });
+  if (!mainCharacter || !plot || !ending) {
+    return res.status(400).json({ error: 'Personagem, enredo e desfecho são obrigatórios' });
   }
 
-  // 4. Verificar chave da OpenAI
+  // Verificar API key
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ 
-      error: 'OPENAI_API_KEY não configurada'
-    });
+    return res.status(500).json({ error: 'OPENAI_API_KEY não configurada' });
   }
 
   try {
     const startTime = Date.now();
-    console.log('🚀 Iniciando geração de conteúdo otimizada...');
 
-    // ==================== GERAR HISTÓRIA COM GPT ====================
-    console.log('🤖 Gerando texto otimizado com GPT...');
+    // ==================== GERAR TEXTO ====================
+    console.log('🤖 Gerando texto...');
     
-    // Prompt otimizado para texto mais curto
-    const systemPrompt = `Você é um assistente educacional especializado em português brasileiro.
-    Diretrizes IMPORTANTES:
-    1. Produza textos claros e envolventes para estudantes
-    2. MÁXIMO 200 palavras (aproximadamente 1500 caracteres)
-    3. Use linguagem apropriada para o ENEM
-    4. Formato: parágrafos curtos e objetivos
-    5. Foco: desenvolvimento do raciocínio crítico
-    
-    Contexto do usuário:
-    - Personagem: ${sanitizedInput.mainCharacter}
-    - Enredo: ${sanitizedInput.plot}
-    - Desfecho: ${sanitizedInput.ending}
-    - Gênero: ${sanitizedInput.genre}
-    - Tipo: ${sanitizedInput.literature}`;
-
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: systemPrompt
+          content: "Você é um assistente educacional. Escreva textos claros de 150-200 palavras em português."
         },
         {
           role: "user",
-          content: `Crie um(a) ${sanitizedInput.literature || 'história'} no gênero ${sanitizedInput.genre || 'fantasia'}.
-          
-          Diretrizes:
-          1. Personagem principal: ${sanitizedInput.mainCharacter}
-          2. Enredo central: ${sanitizedInput.plot}
-          3. Desfecho: ${sanitizedInput.ending}
-          4. Tamanho: MÁXIMO 200 palavras
-          5. Objetivo: Desenvolver pensamento crítico`
+          content: `Crie ${literature || 'uma história'} no gênero ${genre || 'fantasia'}.
+          Personagem: ${mainCharacter}
+          Enredo: ${plot}
+          Desfecho: ${ending}
+          Máximo 200 palavras.`
         }
       ],
-      max_tokens: 500, // REDUZIDO: 500 tokens máximo
+      max_tokens: 500,
       temperature: 0.7,
     });
 
-    let story = gptResponse.choices[0].message.content;
-    const gptTime = Date.now() - startTime;
-    
-    console.log(`✅ Texto gerado em ${gptTime}ms: ${story.length} caracteres, ${story.split(/\s+/).length} palavras`);
+    const storyText = gptResponse.choices[0].message.content;
+    console.log(`✅ Texto gerado: ${storyText.length} caracteres`);
 
-    // ==================== GERAR ILUSTRAÇÃO COM RESOLUÇÃO REDUZIDA ====================
-    let fullImageb64 = "";
-    let thumbnailb64 = "";
-    const imageStartTime = Date.now();
+    // ==================== GERAR IMAGEM ====================
+    let originalImage = "";
+    let compressedImage = "";
     
-    try {
-      console.log('🎨 Gerando ilustração OTIMIZADA (256x256)...');
-      
-      // Prompt otimizado para ilustração simples e pequena
-      const imagePrompt = `Ilustração educacional simples para estudantes.
-      Tema: ${sanitizedInput.mainCharacter} em ${sanitizedInput.plot.substring(0, 50)}...
-      Gênero: ${sanitizedInput.genre}. Estilo: cartoon educativo, cores básicas, fundo simples.
-      IMPORTANTE: Ilustração MINIMALISTA com poucos detalhes para carregamento rápido.`;
-      
-      const imageResponse = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: imagePrompt,
-        size: IMAGE_CONFIG.GENERATION_SIZE, // "256x256" - RESOLUÇÃO REDUZIDA
-        quality: "standard",
-        n: 1,
-        response_format: "b64_json",
-      });
-
-      fullImageb64 = imageResponse.data[0].b64_json;
-      const originalSizeKB = Math.round(fullImageb64.length / 1024);
-      console.log(`✅ Imagem otimizada gerada em ${Date.now() - imageStartTime}ms: ${originalSizeKB}KB (${IMAGE_CONFIG.GENERATION_SIZE})`);
-      
-      // Criar thumbnail ainda mais otimizada se necessário
-      if (fullImageb64 && fullImageb64.length > 0) {
-        console.log('🔄 Criando thumbnail ultra-otimizada...');
-        thumbnailb64 = await createOptimizedThumbnail(fullImageb64);
+    if (CONFIG.ENABLE_IMAGES) {
+      try {
+        console.log('🎨 Gerando imagem (256x256)...');
         
-        if (thumbnailb64 && thumbnailb64.length > 0) {
-          const thumbnailKB = Math.round(thumbnailb64.length / 1024);
-          console.log(`✅ Thumbnail ultra-otimizada: ${thumbnailKB}KB`);
-        } else {
-          console.log('⚠️  Não foi possível criar thumbnail otimizada');
-        }
+        const imageResponse = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: `Ilustração educacional simples para: ${storyText.substring(0, 80)}... Estilo cartoon.`,
+          size: CONFIG.IMAGE_SIZE, // 256x256
+          quality: "standard",
+          n: 1,
+          response_format: "b64_json",
+        });
+
+        originalImage = imageResponse.data[0].b64_json;
+        const originalSizeKB = Math.round(originalImage.length / 1024);
+        console.log(`✅ Imagem gerada: ${originalSizeKB}KB`);
+        
+        // COMPRIMIR (método simples)
+        compressedImage = simpleImageCompression(originalImage);
+        
+      } catch (imageError) {
+        console.log('⚠️  Erro na imagem:', imageError.message);
+        compressedImage = createTinyImage();
       }
-      
-    } catch (imageError) {
-      console.log('⚠️  Não foi possível gerar imagem:', imageError.message);
-      // Continuar mesmo sem imagem - texto é mais importante
+    } else {
+      // Modo sem imagem
+      console.log('🔄 Modo sem imagem ativado');
+      compressedImage = createTinyImage();
     }
-
-    // ==================== PREPARAR DADOS PARA SALVAR ====================
-    console.log('📋 Preparando dados otimizados para salvar...');
-    
-    // Adicionar informações do usuário de forma estruturada
-    const storyWithMetadata = story + `
-
-=== METADADOS DO USUÁRIO ===
-Personagem: ${sanitizedInput.mainCharacter}
-Enredo: ${sanitizedInput.plot}
-Desfecho: ${sanitizedInput.ending}
-Gênero: ${sanitizedInput.genre}
-Tipo: ${sanitizedInput.literature}
-Data: ${new Date().toISOString()}
-============================`;
 
     // ==================== SALVAR NO BANCO ====================
-    console.log('💾 Salvando história otimizada no banco...');
+    console.log('💾 Salvando no NeonDB...');
     
-    const saveResult = await saveToDatabase(storyWithMetadata, thumbnailb64, sanitizedInput);
+    // Adicionar metadados ao texto
+    const fullText = storyText + `
+
+=== DADOS ===
+Personagem: ${mainCharacter}
+Enredo: ${plot}
+Desfecho: ${ending}
+Gênero: ${genre}
+Tipo: ${literature}
+=============`;
+
+    const saveResult = await saveStory(fullText, compressedImage, {
+      mainCharacter, plot, ending, genre, literature
+    });
     
-    // ==================== PREPARAR RESPOSTA OTIMIZADA ====================
+    // ==================== RESPOSTA ====================
     const totalTime = Date.now() - startTime;
-    console.log(`🎉 Processo completo em ${totalTime}ms`);
     
-    // Verificar tamanhos
-    const hasFullImage = fullImageb64 && fullImageb64.length > 0;
-    const hasThumbnail = thumbnailb64 && thumbnailb64.length > 0;
-    const fullImageSizeKB = hasFullImage ? Math.round(fullImageb64.length / 1024) : 0;
-    const thumbnailSizeKB = hasThumbnail ? Math.round(thumbnailb64.length / 1024) : 0;
-    
-    // Determinar status da otimização
-    let optimizationStatus = "excelente";
-    let optimizationMessage = "Conteúdo totalmente otimizado";
-    
-    if (fullImageSizeKB > IMAGE_CONFIG.MAX_IMAGE_SIZE_KB) {
-      optimizationStatus = "bom";
-      optimizationMessage = "Imagem um pouco grande, mas gerenciável";
-    }
-    
-    if (!hasThumbnail && hasFullImage) {
-      optimizationStatus = "regular";
-      optimizationMessage = "Imagem muito grande para thumbnail";
-    }
-    
-    const responseData = {
+    const response = {
       success: true,
-      story: story,
-      fullImageb64: hasFullImage ? fullImageb64 : "",
-      thumbnailb64: hasThumbnail ? thumbnailb64 : "",
+      story: storyText,
+      // Retorna imagem original para visualização
+      imageb64: originalImage || "",
+      // E também a comprimida que foi salva
+      savedImageb64: compressedImage || "",
       metadata: {
-        generationTime: totalTime,
-        textGenerationTime: gptTime,
-        imageGenerationTime: imageStartTime > 0 ? Date.now() - imageStartTime : 0,
-        optimization: {
-          status: optimizationStatus,
-          message: optimizationMessage,
-          resolution: IMAGE_CONFIG.GENERATION_SIZE,
-          maxThumbnailKB: IMAGE_CONFIG.MAX_THUMBNAIL_KB
-        },
-        sizes: {
-          textLength: story.length,
-          wordCount: story.split(/\s+/).length,
-          fullImageKB: fullImageSizeKB,
-          thumbnailKB: thumbnailSizeKB,
-          hasThumbnail: hasThumbnail
-        },
-        timestamp: new Date().toISOString()
+        time: `${totalTime}ms`,
+        textLength: storyText.length,
+        hasImage: !!originalImage,
+        imageSaved: saveResult.imageSizeKB ? `${saveResult.imageSizeKB}KB` : 'Não'
       },
       database: {
         saved: saveResult.success,
         storyId: saveResult.id,
-        message: saveResult.message,
-        warning: saveResult.warning || null,
-        imageSaved: saveResult.hasThumbnail || false
+        message: saveResult.warning || 'Salvo com sucesso'
       },
-      // Dados do usuário sanitizados
-      userInput: sanitizedInput
+      userInput: { mainCharacter, plot, ending, genre, literature }
     };
 
-    // Log de resumo
-    console.log('📊 RESUMO DA GERAÇÃO:');
-    console.log(`   📝 Texto: ${story.length} caracteres`);
-    console.log(`   🖼️ Imagem: ${fullImageSizeKB}KB (${IMAGE_CONFIG.GENERATION_SIZE})`);
-    console.log(`   🖼️ Thumbnail: ${thumbnailSizeKB}KB ${hasThumbnail ? '✅' : '❌'}`);
-    console.log(`   ⚡ Status: ${optimizationStatus.toUpperCase()} - ${optimizationMessage}`);
-
-    res.status(200).json(responseData);
+    console.log(`🎉 Finalizado em ${totalTime}ms`);
+    console.log(`📊 Resumo: Texto=${storyText.length} chars, Imagem=${saveResult.imageSizeKB || 0}KB`);
+    
+    res.status(200).json(response);
 
   } catch (error) {
-    console.error('💥 ERRO NA EXECUÇÃO:', error.message);
-
-    // Tratamento de erros específicos
+    console.error('💥 ERRO:', error.message);
+    
+    // Erros comuns
     if (error.code === 'insufficient_quota' || error.status === 429) {
-      return res.status(429).json({
-        success: false,
-        error: 'Limite de quota excedido na OpenAI',
-        message: 'Você atingiu seu limite de uso. Tente novamente mais tarde.',
-        code: 'QUOTA_EXCEEDED'
-      });
+      return res.status(429).json({ error: 'Limite da OpenAI excedido' });
     }
-
-    if (error.code === 'invalid_api_key' || error.status === 401) {
-      return res.status(401).json({
-        success: false,
-        error: 'Chave da API inválida',
-        message: 'A chave da OpenAI fornecida não é válida.',
-        code: 'INVALID_API_KEY'
-      });
+    
+    if (error.code === 'invalid_api_key') {
+      return res.status(401).json({ error: 'Chave da API inválida' });
     }
-
-    if (error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
-      return res.status(504).json({
-        success: false,
-        error: 'Timeout na geração',
-        message: 'O processo demorou muito tempo. Tente com um prompt mais curto.',
-        code: 'TIMEOUT_ERROR'
-      });
-    }
-
-    // Erro genérico
+    
     res.status(500).json({
       success: false,
-      error: 'Erro ao gerar conteúdo',
-      message: error.message,
-      code: 'INTERNAL_ERROR',
-      suggestion: 'Verifique os logs para mais detalhes.'
+      error: 'Erro interno',
+      message: error.message
     });
   }
 }
