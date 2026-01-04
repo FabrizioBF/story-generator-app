@@ -12,7 +12,13 @@ datasource db {
 }
 
 model Story {
-  id      String   @id @default(cuid())
-  text    String
-  illustrationb64 String
+  id             Int      @id @default(autoincrement())
+  text           String   @db.Text
+  illustrationb64 String   @db.Text
+  mainCharacter  String   // Novo campo
+  plot           String   // Novo campo
+  ending         String   // Novo campo
+  genre          String   // Novo campo
+  literature     String   // Novo campo (tipo de literatura)
+  createdAt      DateTime @default(now())
 }
