@@ -1,5 +1,11 @@
-// pages/library.js - VERSÃO COMPLETA COM EXTRATOR DE DADOS DO USUÁRIO
+// pages/library.js - VERSÃO OTIMIZADA COM THUMBNAILS
 import { useState } from 'react';
+
+// Configurações de imagem (deve corresponder ao generate-story.js)
+const IMAGE_CONFIG = {
+  THUMBNAIL_SIZE: 256,
+  MAX_THUMBNAIL_KB: 100
+};
 
 // Função para extrair informações do usuário do texto
 function extractUserDataFromStory(storyText) {
@@ -17,8 +23,8 @@ function extractUserDataFromStory(storyText) {
   }
 
   // Primeiro, tenta extrair do formato estruturado no final do texto
-  const infoSectionStart = "===INFORMAÇÕES DO USUÁRIO===";
-  const infoSectionEnd = "==========================";
+  const infoSectionStart = "=== INFORMAÇÕES DO USUÁRIO ===";
+  const infoSectionEnd = "==============================";
   
   const startIndex = storyText.indexOf(infoSectionStart);
   const endIndex = storyText.indexOf(infoSectionEnd);
@@ -55,8 +61,6 @@ function extractUserDataFromStory(storyText) {
     };
   }
   
-  // Se não encontrar formato estruturado, tenta extrair de campos diretos (se a migração foi feita)
-  // Isso requer que os dados venham do banco com os campos separados
   return { ...defaultData, cleanStory: storyText };
 }
 
@@ -85,7 +89,7 @@ export async function getServerSideProps() {
     await prisma.$queryRaw`SELECT 1`;
     console.log('✅ Conexão estabelecida');
 
-    // Buscar histórias - incluindo os novos campos se existirem
+    // Buscar histórias com thumbnails
     const stories = await prisma.story.findMany({
       orderBy: { id: 'desc' },
       take: 50,
@@ -93,8 +97,8 @@ export async function getServerSideProps() {
         id: true,
         text: true,
         illustrationb64: true,
+        illustrationUrl: true,
         createdAt: true,
-        // Tentar selecionar campos novos se existirem
         mainCharacter: true,
         plot: true,
         ending: true,
@@ -105,11 +109,24 @@ export async function getServerSideProps() {
 
     console.log(`📖 ${stories.length} histórias encontradas`);
     
+    // Analisar tamanhos das thumbnails
+    const storiesWithThumbnailInfo = stories.map(story => {
+      const hasThumbnail = story.illustrationb64 && story.illustrationb64.length > 100;
+      const thumbnailSizeKB = hasThumbnail ? Math.round(story.illustrationb64.length / 1024) : 0;
+      
+      return {
+        ...story,
+        hasThumbnail,
+        thumbnailSizeKB,
+        isOptimized: thumbnailSizeKB > 0 && thumbnailSizeKB <= IMAGE_CONFIG.MAX_THUMBNAIL_KB
+      };
+    });
+    
     await prisma.$disconnect();
     
     return { 
       props: { 
-        stories: JSON.parse(JSON.stringify(stories)),
+        stories: JSON.parse(JSON.stringify(storiesWithThumbnailInfo)),
         error: null,
         timestamp: new Date().toISOString()
       } 
@@ -130,6 +147,7 @@ export async function getServerSideProps() {
 
 export default function StoriesPage({ stories, error, timestamp }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [imageLoadError, setImageLoadError] = useState(false);
 
   // Tratar erros
   if (error) {
@@ -175,7 +193,7 @@ export default function StoriesPage({ stories, error, timestamp }) {
   const userData = extractUserDataFromStory(currentStory.text || "");
   const displayStory = userData.cleanStory || currentStory.text;
   
-  // Preferir dados diretos do banco se disponíveis (depois da migração)
+  // Preferir dados diretos do banco se disponíveis
   const finalUserData = {
     mainCharacter: currentStory.mainCharacter || userData.mainCharacter,
     plot: currentStory.plot || userData.plot,
@@ -194,20 +212,29 @@ export default function StoriesPage({ stories, error, timestamp }) {
         <div style={styles.counterInfo}>
           <span style={styles.counterText}>
             <strong>Texto {currentStoryIndex + 1} de {stories.length}</strong>
-            {finalUserData.hasStructuredData && (
-              <span style={styles.dataSourceBadge}>📋 Dados extraídos do texto</span>
+            {currentStory.hasThumbnail && (
+              <span style={styles.thumbnailBadge}>
+                🖼️ {currentStory.thumbnailSizeKB}KB
+                {currentStory.isOptimized && ' ✓'}
+              </span>
             )}
           </span>
           <div style={styles.counterButtons}>
             <button 
-              onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
+              onClick={() => {
+                setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1));
+                setImageLoadError(false);
+              }}
               disabled={currentStoryIndex === 0}
               style={styles.navButton}
             >
               ← Anterior
             </button>
             <button 
-              onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
+              onClick={() => {
+                setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1));
+                setImageLoadError(false);
+              }}
               disabled={currentStoryIndex === stories.length - 1}
               style={styles.navButton}
             >
@@ -294,40 +321,95 @@ export default function StoriesPage({ stories, error, timestamp }) {
         </div>
       </div>
 
-      {/* Ilustração - Apenas se existir no banco */}
-      {(currentStory.illustrationb64 && currentStory.illustrationb64.trim() !== '') ? (
-        <div style={styles.illustrationSection}>
-          <h3 style={styles.sectionTitle}>
-            <span style={styles.sectionIcon}>🎨</span>
-            Ilustração:
-          </h3>
-          <div style={styles.imageContainer}>
-            <img
-              src={`data:image/png;base64,${currentStory.illustrationb64}`}
-              alt="Ilustração da História"
-              style={styles.image}
-              onError={(e) => {
-                console.log('Erro ao carregar imagem');
-                e.target.style.display = 'none';
-                e.target.parentNode.innerHTML = '<div style="padding: 40px; background: #f8f9fa; border-radius: 10px; text-align: center;">🎨 Imagem não disponível</div>';
-              }}
-            />
-            <div style={styles.imageInfo}>
-              <span style={styles.imageTag}>🖼️ Ilustração gerada</span>
+      {/* SEÇÃO DE THUMBNAIL OTIMIZADA */}
+      {currentStory.hasThumbnail ? (
+        <div style={styles.thumbnailSection}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>
+              <span style={styles.sectionIcon}>🖼️</span>
+              Thumbnail Otimizada:
+            </h3>
+            <div style={styles.thumbnailInfo}>
+              <span style={styles.infoTag}>📏 {IMAGE_CONFIG.THUMBNAIL_SIZE}px</span>
+              <span style={styles.infoTag}>⚡ {currentStory.thumbnailSizeKB}KB</span>
+              {currentStory.isOptimized && (
+                <span style={{...styles.infoTag, backgroundColor: '#d1fae5', color: '#065f46'}}>
+                  ✓ Otimizada
+                </span>
+              )}
             </div>
           </div>
+          
+          <div style={styles.thumbnailContainer}>
+            {!imageLoadError ? (
+              <>
+                <img
+                  src={`data:image/jpeg;base64,${currentStory.illustrationb64}`}
+                  alt="Thumbnail da história"
+                  style={styles.thumbnailImage}
+                  onError={() => {
+                    console.log('❌ Erro ao carregar thumbnail');
+                    setImageLoadError(true);
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Thumbnail carregada com sucesso');
+                  }}
+                />
+                <div style={styles.imageCaption}>
+                  <p style={styles.captionText}>
+                    <small>
+                      <em>
+                        🚀 Esta é uma versão otimizada da imagem ({currentStory.thumbnailSizeKB}KB) 
+                        para carregamento rápido e armazenamento eficiente.
+                      </em>
+                    </small>
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div style={styles.thumbnailError}>
+                <div style={{fontSize: '40px', marginBottom: '10px'}}>❌</div>
+                <p>Thumbnail corrompida ou muito grande</p>
+                <p style={{fontSize: '14px', color: '#666', marginTop: '5px'}}>
+                  Tamanho: {currentStory.thumbnailSizeKB}KB
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* URL alternativa se disponível */}
+          {currentStory.illustrationUrl && currentStory.illustrationUrl.trim() !== '' && (
+            <div style={styles.alternativeUrl}>
+              <p style={{fontSize: '14px', marginBottom: '5px'}}>
+                <strong>URL alternativa disponível:</strong>
+              </p>
+              <a 
+                href={currentStory.illustrationUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={styles.urlLink}
+              >
+                🔗 Abrir imagem completa
+              </a>
+            </div>
+          )}
         </div>
       ) : (
-        <div style={styles.noImageSection}>
+        <div style={styles.noThumbnailSection}>
           <h3 style={styles.sectionTitle}>
-            <span style={styles.sectionIcon}>🎨</span>
-            Ilustração:
+            <span style={styles.sectionIcon}>🖼️</span>
+            Thumbnail:
           </h3>
-          <div style={styles.noImage}>
-            <div style={{fontSize: '40px', marginBottom: '10px'}}>🖼️</div>
-            <p>Esta história não possui ilustração salva no banco</p>
-            <p style={{fontSize: '14px', color: '#666', marginTop: '10px'}}>
-              <em>As ilustrações são geradas mas não são armazenadas no banco para otimização</em>
+          <div style={styles.noThumbnail}>
+            <div style={{fontSize: '40px', marginBottom: '10px', opacity: 0.5}}>📷</div>
+            <p>Esta história não possui thumbnail</p>
+            <p style={styles.optimizationNote}>
+              <small>
+                <em>
+                  As histórias mais recentes incluem thumbnails otimizadas para 
+                  melhor performance e economia de espaço.
+                </em>
+              </small>
             </p>
           </div>
         </div>
@@ -336,7 +418,10 @@ export default function StoriesPage({ stories, error, timestamp }) {
       {/* Navegação Inferior */}
       <div style={styles.bottomNavigation}>
         <button 
-          onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
+          onClick={() => {
+            setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1));
+            setImageLoadError(false);
+          }}
           disabled={currentStoryIndex === 0}
           style={{...styles.bottomButton, ...styles.prevButton}}
         >
@@ -352,7 +437,10 @@ export default function StoriesPage({ stories, error, timestamp }) {
         </a>
         
         <button 
-          onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
+          onClick={() => {
+            setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1));
+            setImageLoadError(false);
+          }}
           disabled={currentStoryIndex === stories.length - 1}
           style={{...styles.bottomButton, ...styles.nextButton}}
         >
@@ -382,9 +470,15 @@ export default function StoriesPage({ stories, error, timestamp }) {
             gap: 10px;
           }
           
-          .data-source-badge {
+          .thumbnail-badge {
             display: block;
             margin-top: 5px;
+          }
+          
+          .thumbnail-info {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
           }
         }
       `}</style>
@@ -440,7 +534,7 @@ const styles = {
     flexDirection: 'column',
     gap: '5px',
   },
-  dataSourceBadge: {
+  thumbnailBadge: {
     fontSize: '12px',
     background: 'rgba(255, 255, 255, 0.2)',
     padding: '3px 8px',
@@ -569,46 +663,98 @@ const styles = {
     fontFamily: "'Georgia', serif",
   },
   
-  // ILUSTRAÇÃO
-  illustrationSection: {
+  // SEÇÃO DE THUMBNAIL
+  thumbnailSection: {
     marginBottom: '35px',
-  },
-  noImageSection: {
-    marginBottom: '35px',
-  },
-  imageContainer: {
-    textAlign: 'center',
-  },
-  image: {
-    maxWidth: '100%',
-    maxHeight: '500px',
-    height: 'auto',
+    background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
     borderRadius: '12px',
-    boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)',
-    border: '1px solid #ddd',
-    transition: 'transform 0.3s ease',
+    padding: '25px',
+    border: '1px solid #bae6fd',
   },
-  imageInfo: {
-    marginTop: '15px',
+  thumbnailInfo: {
     display: 'flex',
-    justifyContent: 'center',
-    gap: '15px',
+    gap: '10px',
     flexWrap: 'wrap',
   },
-  imageTag: {
-    background: '#e9ecef',
-    padding: '6px 12px',
-    borderRadius: '20px',
-    fontSize: '13px',
-    color: '#495057',
+  infoTag: {
+    background: '#e0f2fe',
+    padding: '4px 10px',
+    borderRadius: '15px',
+    fontSize: '12px',
+    color: '#0369a1',
+    fontWeight: '600',
   },
-  noImage: {
+  thumbnailContainer: {
+    textAlign: 'center',
+    marginTop: '15px',
+  },
+  thumbnailImage: {
+    maxWidth: '400px',
+    maxHeight: '400px',
+    width: 'auto',
+    height: 'auto',
+    borderRadius: '8px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+    border: '2px solid #7dd3fc',
+    backgroundColor: '#f8fafc',
+    transition: 'transform 0.3s ease',
+  },
+  imageCaption: {
+    marginTop: '15px',
+    padding: '10px',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: '8px',
+    maxWidth: '500px',
+    margin: '15px auto 0',
+  },
+  captionText: {
+    margin: '0',
+    color: '#475569',
+    fontSize: '13px',
+    lineHeight: '1.5',
+  },
+  thumbnailError: {
     padding: '40px',
-    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+    background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
     borderRadius: '10px',
     textAlign: 'center',
-    color: '#6c757d',
-    border: '2px dashed #adb5bd',
+    color: '#dc2626',
+    border: '2px dashed #f87171',
+  },
+  alternativeUrl: {
+    marginTop: '20px',
+    padding: '15px',
+    backgroundColor: '#f0fdf4',
+    borderRadius: '8px',
+    border: '1px solid #bbf7d0',
+    textAlign: 'center',
+  },
+  urlLink: {
+    display: 'inline-block',
+    padding: '8px 16px',
+    backgroundColor: '#10b981',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '6px',
+    fontWeight: '600',
+    transition: 'background-color 0.3s',
+  },
+  noThumbnailSection: {
+    marginBottom: '35px',
+  },
+  noThumbnail: {
+    padding: '40px',
+    background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+    borderRadius: '10px',
+    textAlign: 'center',
+    color: '#64748b',
+    border: '2px dashed #cbd5e1',
+  },
+  optimizationNote: {
+    marginTop: '15px',
+    color: '#475569',
+    maxWidth: '500px',
+    margin: '10px auto 0',
   },
   
   // NAVEGAÇÃO INFERIOR
