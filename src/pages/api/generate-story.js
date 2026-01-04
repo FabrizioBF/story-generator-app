@@ -1,19 +1,19 @@
-// pages/api/generate-story.js - VERSÃO CORRIGIDA
+// pages/api/generate-story.js - VERSÃO OTIMIZADA (SEM SALVAR IMAGEM NO BANCO)
 import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ==================== FUNÇÃO DE SALVAMENTO ROBUSTO ====================
-async function saveToDatabase(story, illustrationb64, userInput) {
+// ==================== FUNÇÃO DE SALVAMENTO SIMPLIFICADA ====================
+async function saveToDatabase(story, userInput) {
   console.log('💾 Iniciando salvamento no banco de dados...');
   
   if (!process.env.DATABASE_URL) {
     console.log('❌ DATABASE_URL não configurada');
     return { 
       success: false, 
-      error: 'DATABASE_URL não configurada no ambiente',
+      error: 'DATABASE_URL não configurada',
       code: 'NO_DATABASE_URL'
     };
   }
@@ -23,51 +23,27 @@ async function saveToDatabase(story, illustrationb64, userInput) {
     
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient({
-      log: ['warn', 'error'],
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL
-        }
-      }
+      datasources: { db: { url: process.env.DATABASE_URL } }
     });
 
     // Testar conexão
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      console.log('✅ Conexão com banco estabelecida');
-    } catch (connError) {
-      console.error('❌ Falha na conexão com o banco:', connError.message);
-      await prisma.$disconnect();
-      return { 
-        success: false, 
-        error: `Falha na conexão: ${connError.message}`,
-        code: 'CONNECTION_FAILED'
-      };
-    }
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('✅ Conexão com banco estabelecida');
 
-    // Limitar o tamanho do texto para evitar erro de banco de dados
-    const truncatedStory = story.length > 15000 ? story.substring(0, 15000) + '...' : story;
-    const truncatedIllustration = illustrationb64 && illustrationb64.length > 5000000 
-      ? illustrationb64.substring(0, 5000000) 
-      : illustrationb64 || "";
+    // Limitar o tamanho do texto para evitar erro
+    const MAX_STORY_LENGTH = 10000; // 10K caracteres
+    const truncatedStory = story.length > MAX_STORY_LENGTH 
+      ? story.substring(0, MAX_STORY_LENGTH) + '... [Texto truncado]' 
+      : story;
 
-    // Inserir a história no banco COM OS DADOS DO USUÁRIO
     console.log('📝 Inserindo história no banco...');
-    console.log('📊 Dados do usuário:', {
-      mainCharacter: userInput.mainCharacter?.substring(0, 50),
-      plot: userInput.plot?.substring(0, 50),
-      ending: userInput.ending?.substring(0, 50),
-      genre: userInput.genre,
-      literature: userInput.literature
-    });
-
-    // Verificar se a tabela tem os novos campos
+    
+    // Tentar inserir COM os novos campos
     try {
-      // Tentar inserir com todos os campos (incluindo os novos)
       const result = await prisma.story.create({
         data: {
           text: truncatedStory,
-          illustrationb64: truncatedIllustration,
+          illustrationb64: "", // String vazia - não salvar imagem
           mainCharacter: userInput.mainCharacter || "Não informado",
           plot: userInput.plot || "Não informado",
           ending: userInput.ending || "Não informado",
@@ -86,13 +62,13 @@ async function saveToDatabase(story, illustrationb64, userInput) {
       };
       
     } catch (schemaError) {
-      console.log('⚠️  Tentando inserir sem os novos campos...', schemaError.message);
+      console.log('⚠️  Erro de schema, tentando inserir sem novos campos...');
       
-      // Se falhar, tentar inserir apenas com os campos originais
+      // Se falhar, tentar inserir apenas com texto
       const result = await prisma.story.create({
         data: {
           text: truncatedStory,
-          illustrationb64: truncatedIllustration
+          illustrationb64: "" // String vazia
         }
       });
 
@@ -102,29 +78,19 @@ async function saveToDatabase(story, illustrationb64, userInput) {
       return { 
         success: true, 
         id: result.id,
-        message: 'História salva (estrutura antiga do banco)',
-        warning: 'Campos do usuário não foram salvos - necessário migração do banco'
+        message: 'História salva (campos limitados)',
+        warning: 'Campos do usuário não salvos - necessário migração'
       };
     }
     
   } catch (dbError) {
-    console.error('❌ ERRO ao salvar no banco:', {
-      message: dbError.message,
-      code: dbError.code
-    });
-    
-    let userMessage = 'Erro ao salvar no banco de dados';
-    if (dbError.code === 'P2000') {
-      userMessage = 'O texto é muito longo para ser salvo. Tente com um texto menor.';
-    } else if (dbError.code === 'P1001') {
-      userMessage = 'Não foi possível conectar ao servidor de banco de dados.';
-    }
+    console.error('❌ ERRO ao salvar no banco:', dbError.message);
     
     return { 
       success: false, 
       error: dbError.message,
       code: dbError.code,
-      userMessage: userMessage
+      userMessage: 'Erro ao salvar no banco de dados'
     };
   }
 }
@@ -133,36 +99,28 @@ async function saveToDatabase(story, illustrationb64, userInput) {
 export default async function handler(req, res) {
   console.log('📨 === API generate-story chamada ===');
   
+  // 1. Verificar método HTTP
   if (req.method !== 'POST') {
-    console.log(`❌ Método ${req.method} não permitido`);
     return res.status(405).json({ 
       error: 'Método não permitido',
       allowed: ['POST']
     });
   }
 
+  // 2. Extrair dados do corpo
   const { mainCharacter, plot, ending, genre, literature } = req.body;
-  console.log('📥 Dados recebidos:', { 
-    mainCharacter: mainCharacter?.substring(0, 30),
-    plot: plot?.substring(0, 30),
-    ending: ending?.substring(0, 30),
-    genre,
-    literature
-  });
-
+  
+  // 3. Validação básica
   if (!mainCharacter || !plot || !ending) {
-    console.log('❌ Validação falhou: campos obrigatórios faltando');
     return res.status(400).json({ 
-      error: 'Campos obrigatórios faltando',
-      required: ['mainCharacter', 'plot', 'ending']
+      error: 'Campos obrigatórios faltando: personagem, enredo e desfecho'
     });
   }
 
+  // 4. Verificar chave da OpenAI
   if (!process.env.OPENAI_API_KEY) {
-    console.error('❌ OPENAI_API_KEY não configurada');
     return res.status(500).json({ 
-      error: 'Configuração do servidor incompleta',
-      message: 'OPENAI_API_KEY não encontrada'
+      error: 'OPENAI_API_KEY não configurada'
     });
   }
 
@@ -177,66 +135,55 @@ export default async function handler(req, res) {
       messages: [
         {
           role: "system",
-          content: "Você é um escritor criativo especializado em português brasileiro. Produza textos claros e envolventes. LIMITE: máximo 300 palavras."
+          content: `Você é um escritor criativo especializado em português brasileiro. 
+          Diretrizes IMPORTANTES:
+          1. Produza textos claros e envolventes
+          2. MÁXIMO 250 palavras (cerca de 1500 caracteres)
+          3. Use linguagem apropriada para estudantes
+          4. Mantenha uma narrativa coesa
+          5. INCLUA as seguintes informações no FINAL do texto:
+             
+"===INFORMAÇÕES DO USUÁRIO===
+Personagem Principal: ${mainCharacter}
+Enredo: ${plot}
+Desfecho: ${ending}
+Gênero: ${genre}
+Tipo de Literatura: ${literature}
+=========================="`
         },
         {
           role: "user",
-          content: `Crie um(a) ${literature || 'história'} no gênero ${genre || 'fantasia'} em português do Brasil. Diretrizes:
-          1. Personagem principal: ${mainCharacter}
-          2. Enredo central: ${plot}
-          3. Desfecho: ${ending}
-          4. Tamanho: MÁXIMO 300 palavras
-          5. Seja criativo, descritivo e mantenha uma narrativa coesa.`
+          content: `Crie um(a) ${literature || 'história'} no gênero ${genre || 'fantasia'} em português do Brasil.
+          
+          Personagem principal: ${mainCharacter}
+          Enredo central: ${plot}
+          Desfecho: ${ending}
+          
+          Lembre-se: MÁXIMO 250 palavras.`
         }
       ],
-      max_tokens: 800, // Limitar tokens para evitar textos muito longos
-      temperature: 0.8,
+      max_tokens: 600, // Limitar para texto mais curto
+      temperature: 0.7,
     });
 
-    const story = gptResponse.choices[0].message.content;
-    const gptTime = Date.now() - startTime;
-    console.log(`✅ Texto gerado com sucesso em ${gptTime}ms`);
-    console.log(`📏 Tamanho do texto: ${story.length} caracteres (${story.split(/\s+/).length} palavras)`);
-
-    // Verificar se o texto é muito longo
-    if (story.length > 20000) {
-      console.log('⚠️  Texto muito longo, truncando...');
-      const truncatedStory = story.substring(0, 15000) + '\n\n...[Texto truncado para caber no banco de dados]';
-      
-      // Continuar com o processo mesmo com texto truncado
-      console.log(`📏 Tamanho após truncamento: ${truncatedStory.length} caracteres`);
-    }
+    let story = gptResponse.choices[0].message.content;
+    console.log(`✅ Texto gerado: ${story.length} caracteres, ${story.split(/\s+/).length} palavras`);
 
     // ==================== GERAR ILUSTRAÇÃO COM DALL-E ====================
     let illustrationb64 = "";
-    const imageStartTime = Date.now();
     
     try {
-      console.log('🎨 Gerando prompt para ilustração...');
-      const dallePromptResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { 
-            role: "system", 
-            content: "Você é um especialista em criação de prompts para DALL-E 3. Seja conciso e específico. Máximo 100 palavras." 
-          },
-          { 
-            role: "user", 
-            content: `Crie UM prompt detalhado em português para ilustrar esta história: ${story.substring(0, 300)}...
-            Gênero: ${genre}. Personagem: ${mainCharacter}. 
-            O prompt deve ser apropriado para DALL-E 3. Responda APENAS com o prompt.` 
-          }
-        ],
-        max_tokens: 200,
-      });
+      console.log('🎨 Gerando ilustração...');
       
-      const dallePrompt = dallePromptResponse.choices[0].message.content;
-      console.log('📋 Prompt gerado:', dallePrompt.substring(0, 100) + '...');
-
-      console.log('🖼️ Gerando imagem com DALL-E...');
+      // Criar prompt mais simples para evitar imagens muito complexas
+      const imagePrompt = `Ilustração para uma ${literature || 'história'} de ${genre || 'fantasia'}.
+      Personagem: ${mainCharacter}.
+      Cena principal relacionada a: ${plot.substring(0, 100)}...
+      Estilo: Ilustração digital colorida, apropriada para educação.`;
+      
       const imageResponse = await openai.images.generate({
         model: "dall-e-3",
-        prompt: dallePrompt,
+        prompt: imagePrompt,
         size: "1024x1024",
         quality: "standard",
         n: 1,
@@ -244,19 +191,16 @@ export default async function handler(req, res) {
       });
 
       illustrationb64 = imageResponse.data[0].b64_json;
-      const imageTime = Date.now() - imageStartTime;
-      console.log(`✅ Imagem gerada com sucesso em ${imageTime}ms`);
-      console.log(`📊 Tamanho da imagem base64: ${Math.round(illustrationb64.length / 1024)}KB`);
+      console.log(`✅ Imagem gerada: ${Math.round(illustrationb64.length / 1024)}KB`);
       
     } catch (imageError) {
-      console.error('❌ Erro ao gerar imagem:', imageError.message);
+      console.log('⚠️  Não foi possível gerar imagem:', imageError.message);
       illustrationb64 = "";
-      // Continuar mesmo sem imagem
     }
 
     // ==================== SALVAR NO BANCO DE DADOS ====================
-    console.log('💾 Salvando no banco de dados...');
-    const saveResult = await saveToDatabase(story, illustrationb64, {
+    console.log('💾 Salvando história no banco (SEM imagem)...');
+    const saveResult = await saveToDatabase(story, {
       mainCharacter,
       plot,
       ending,
@@ -271,21 +215,20 @@ export default async function handler(req, res) {
     const responseData = {
       success: true,
       story: story,
-      illustrationb64: illustrationb64 || "",
+      illustrationb64: illustrationb64, // A imagem é retornada, mas NÃO salva no banco
       metadata: {
         generationTime: `${totalTime}ms`,
-        textGenerationTime: `${gptTime}ms`,
         textLength: story.length,
         wordCount: story.split(/\s+/).length,
-        modelUsed: "gpt-4o",
         timestamp: new Date().toISOString()
       },
       database: {
         saved: saveResult.success,
-        message: saveResult.message || saveResult.userMessage,
+        storyId: saveResult.id,
+        message: saveResult.message,
         warning: saveResult.warning || null
       },
-      // Incluir os dados do usuário na resposta
+      // Dados do usuário sempre retornados
       userInput: {
         mainCharacter,
         plot,
@@ -295,47 +238,30 @@ export default async function handler(req, res) {
       }
     };
 
-    if (saveResult.success && saveResult.id) {
-      responseData.database.storyId = saveResult.id;
-    }
-
-    if (!saveResult.success) {
-      responseData.database.warning = saveResult.userMessage;
-      console.log('⚠️  Aviso de banco:', saveResult.userMessage);
-    }
-
     res.status(200).json(responseData);
 
   } catch (error) {
-    console.error('💥 ERRO NA EXECUÇÃO:', {
-      name: error.name,
-      message: error.message,
-      code: error.code
-    });
+    console.error('💥 ERRO:', error.message);
 
-    // Erros específicos da OpenAI
+    // Tratamento de erros comuns
     if (error.code === 'insufficient_quota' || error.status === 429) {
       return res.status(429).json({
         success: false,
-        error: 'Limite de quota excedido',
-        message: 'Você excedeu seu limite atual na OpenAI.'
+        error: 'Limite de quota excedido na OpenAI'
       });
     }
 
     if (error.code === 'invalid_api_key' || error.status === 401) {
       return res.status(401).json({
         success: false,
-        error: 'Chave da API inválida',
-        message: 'A chave da OpenAI fornecida é inválida ou expirou.'
+        error: 'Chave da API inválida'
       });
     }
 
-    // Erro genérico
     res.status(500).json({
       success: false,
-      error: 'Falha ao gerar conteúdo',
-      message: error.message,
-      suggestion: 'Tente novamente com um prompt mais curto.'
+      error: 'Erro ao gerar conteúdo',
+      message: error.message
     });
   }
 }
