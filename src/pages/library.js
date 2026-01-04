@@ -1,11 +1,5 @@
-// pages/library.js - VERSÃO ATUALIZADA COM MENSAGENS DE THUMBNAIL
+// pages/library.js - VERSÃO COM TRATAMENTO DE ERRO DE IMAGEM
 import { useState } from 'react';
-
-// Configurações de imagem (deve corresponder ao generate-story.js)
-const IMAGE_CONFIG = {
-  THUMBNAIL_SIZE: 256,
-  MAX_THUMBNAIL_KB: 150
-};
 
 // Função para extrair informações do usuário do texto
 function extractUserDataFromStory(storyText) {
@@ -23,8 +17,8 @@ function extractUserDataFromStory(storyText) {
   }
 
   // Primeiro, tenta extrair do formato estruturado no final do texto
-  const infoSectionStart = "=== INFORMAÇÕES DO USUÁRIO ===";
-  const infoSectionEnd = "==============================";
+  const infoSectionStart = "=== DADOS ===";
+  const infoSectionEnd = "=============";
   
   const startIndex = storyText.indexOf(infoSectionStart);
   const endIndex = storyText.indexOf(infoSectionEnd);
@@ -35,8 +29,8 @@ function extractUserDataFromStory(storyText) {
     
     lines.forEach(line => {
       const trimmedLine = line.trim();
-      if (trimmedLine.includes('Personagem Principal:')) {
-        defaultData.mainCharacter = trimmedLine.split('Personagem Principal:')[1]?.trim() || "Não informado";
+      if (trimmedLine.includes('Personagem:')) {
+        defaultData.mainCharacter = trimmedLine.split('Personagem:')[1]?.trim() || "Não informado";
       }
       if (trimmedLine.includes('Enredo:')) {
         defaultData.plot = trimmedLine.split('Enredo:')[1]?.trim() || "Não informado";
@@ -47,8 +41,8 @@ function extractUserDataFromStory(storyText) {
       if (trimmedLine.includes('Gênero:')) {
         defaultData.genre = trimmedLine.split('Gênero:')[1]?.trim() || "Não informado";
       }
-      if (trimmedLine.includes('Tipo de Literatura:')) {
-        defaultData.literature = trimmedLine.split('Tipo de Literatura:')[1]?.trim() || "Não informado";
+      if (trimmedLine.includes('Tipo:')) {
+        defaultData.literature = trimmedLine.split('Tipo:')[1]?.trim() || "Não informado";
       }
     });
     
@@ -109,30 +103,28 @@ export async function getServerSideProps() {
 
     console.log(`📖 ${stories.length} histórias encontradas`);
     
-    // Analisar thumbnails
+    // Analisar imagens
     const storiesWithImageInfo = stories.map(story => {
-      const hasImage = story.illustrationb64 && story.illustrationb64.length > 100;
-      const imageSizeKB = hasImage ? Math.round(story.illustrationb64.length / 1024) : 0;
-      const isOptimized = imageSizeKB > 0 && imageSizeKB <= IMAGE_CONFIG.MAX_THUMBNAIL_KB;
+      const hasImageData = story.illustrationb64 && story.illustrationb64.length > 100;
+      const imageSizeKB = hasImageData ? Math.round(story.illustrationb64.length / 1024) : 0;
       
-      // Determinar o status da imagem
-      let imageStatus = 'no-image';
-      if (hasImage) {
-        if (isOptimized) {
-          imageStatus = 'optimized';
-        } else if (imageSizeKB > IMAGE_CONFIG.MAX_THUMBNAIL_KB) {
-          imageStatus = 'too-large';
+      // Determinar tipo de imagem
+      let imageType = 'none';
+      if (hasImageData) {
+        if (imageSizeKB < 5) {
+          imageType = 'placeholder';
+        } else if (imageSizeKB > 100) {
+          imageType = 'possibly-corrupted';
         } else {
-          imageStatus = 'has-image';
+          imageType = 'regular';
         }
       }
       
       return {
         ...story,
-        hasImage,
+        hasImageData,
         imageSizeKB,
-        isOptimized,
-        imageStatus
+        imageType
       };
     });
     
@@ -161,7 +153,6 @@ export async function getServerSideProps() {
 
 export default function StoriesPage({ stories, error, timestamp }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
-  const [imageLoadError, setImageLoadError] = useState(false);
 
   // Tratar erros
   if (error) {
@@ -217,210 +208,6 @@ export default function StoriesPage({ stories, error, timestamp }) {
     hasStructuredData: userData.hasStructuredData
   };
 
-  // Função para renderizar a seção de imagem baseada no status
-  const renderImageSection = () => {
-    switch (currentStory.imageStatus) {
-      case 'optimized':
-        return renderOptimizedThumbnail();
-      case 'has-image':
-        return renderRegularImage();
-      case 'too-large':
-        return renderTooLargeMessage();
-      case 'no-image':
-      default:
-        return renderNoImageMessage();
-    }
-  };
-
-  // Renderizar thumbnail otimizada
-  const renderOptimizedThumbnail = () => (
-    <div style={styles.thumbnailSection}>
-      <div style={styles.sectionHeader}>
-        <h3 style={styles.sectionTitle}>
-          <span style={styles.sectionIcon}>🖼️</span>
-          Thumbnail Otimizada:
-        </h3>
-        <div style={styles.thumbnailInfo}>
-          <span style={styles.infoTag}>📏 {IMAGE_CONFIG.THUMBNAIL_SIZE}px</span>
-          <span style={styles.infoTag}>⚡ {currentStory.imageSizeKB}KB</span>
-          <span style={{...styles.infoTag, ...styles.optimizedTag}}>
-            ✓ Otimizada
-          </span>
-        </div>
-      </div>
-      
-      <div style={styles.thumbnailContainer}>
-        {!imageLoadError ? (
-          <>
-            <img
-              src={`data:image/jpeg;base64,${currentStory.illustrationb64}`}
-              alt="Thumbnail da história"
-              style={styles.thumbnailImage}
-              onError={() => {
-                console.log('❌ Erro ao carregar thumbnail');
-                setImageLoadError(true);
-              }}
-              onLoad={() => {
-                console.log('✅ Thumbnail carregada com sucesso');
-              }}
-            />
-            <div style={styles.imageCaption}>
-              <p style={styles.captionText}>
-                <small>
-                  <em>
-                    🚀 Esta é uma versão otimizada ({currentStory.imageSizeKB}KB) 
-                    para carregamento rápido.
-                  </em>
-                </small>
-              </p>
-            </div>
-          </>
-        ) : (
-          <div style={styles.thumbnailError}>
-            <div style={{fontSize: '40px', marginBottom: '10px'}}>❌</div>
-            <p>Erro ao carregar thumbnail</p>
-            <button 
-              onClick={() => setImageLoadError(false)}
-              style={styles.retryButton}
-            >
-              🔄 Tentar novamente
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // Renderizar imagem regular (não otimizada)
-  const renderRegularImage = () => (
-    <div style={styles.imageSection}>
-      <div style={styles.sectionHeader}>
-        <h3 style={styles.sectionTitle}>
-          <span style={styles.sectionIcon}>🖼️</span>
-          Ilustração:
-        </h3>
-        <div style={styles.thumbnailInfo}>
-          <span style={styles.infoTag}>📏 {currentStory.imageSizeKB}KB</span>
-        </div>
-      </div>
-      
-      <div style={styles.imageContainer}>
-        {!imageLoadError ? (
-          <>
-            <img
-              src={`data:image/png;base64,${currentStory.illustrationb64}`}
-              alt="Ilustração da história"
-              style={styles.regularImage}
-              onError={() => {
-                console.log('❌ Erro ao carregar imagem');
-                setImageLoadError(true);
-              }}
-            />
-            <div style={styles.imageCaption}>
-              <p style={styles.captionText}>
-                <small>
-                  <em>
-                    ⚠️ Esta imagem pode ser grande ({currentStory.imageSizeKB}KB).
-                    Carregamento pode ser lento.
-                  </em>
-                </small>
-              </p>
-            </div>
-          </>
-        ) : (
-          <div style={styles.imageError}>
-            <div style={{fontSize: '40px', marginBottom: '10px'}}>⚠️</div>
-            <p>Imagem muito grande para carregar</p>
-            <p style={{fontSize: '14px', color: '#666', marginTop: '5px'}}>
-              Tamanho: {currentStory.imageSizeKB}KB (limite: {IMAGE_CONFIG.MAX_THUMBNAIL_KB}KB)
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // Renderizar mensagem de imagem muito grande
-  const renderTooLargeMessage = () => (
-    <div style={styles.largeImageSection}>
-      <h3 style={styles.sectionTitle}>
-        <span style={styles.sectionIcon}>🖼️</span>
-        Ilustração (Muito Grande):
-      </h3>
-      <div style={styles.largeImageMessage}>
-        <div style={{fontSize: '50px', marginBottom: '15px', color: '#f59e0b'}}>📦</div>
-        <h4>Imagem muito grande para armazenamento</h4>
-        <p style={styles.messageText}>
-          Esta imagem tem <strong>{currentStory.imageSizeKB}KB</strong>, 
-          excedendo o limite de <strong>{IMAGE_CONFIG.MAX_THUMBNAIL_KB}KB</strong> 
-          para otimização no banco de dados.
-        </p>
-        <div style={styles.recommendationBox}>
-          <p style={styles.recommendationText}>
-            💡 <strong>Recomendação:</strong> Imagens muito grandes não são salvas 
-            no banco para melhor performance. A imagem foi exibida apenas durante a geração.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Renderizar mensagem de sem imagem
-  const renderNoImageMessage = () => (
-    <div style={styles.noImageSection}>
-      <h3 style={styles.sectionTitle}>
-        <span style={styles.sectionIcon}>🖼️</span>
-        Ilustração:
-      </h3>
-      <div style={styles.noImageMessage}>
-        <div style={{fontSize: '50px', marginBottom: '15px', opacity: 0.5}}>📷</div>
-        <h4>Nenhuma imagem salva</h4>
-        
-        {/* Mensagem baseada no tipo de história */}
-        {currentStory.createdAt && new Date(currentStory.createdAt) < new Date('2024-01-01') ? (
-          <p style={styles.messageText}>
-            📅 Esta é uma história antiga. As imagens não eram salvas 
-            no banco de dados na época da criação.
-          </p>
-        ) : currentStory.imageSizeKB === 0 ? (
-          <p style={styles.messageText}>
-            ⚡ Esta história foi otimizada para performance. 
-            A imagem foi exibida apenas durante a geração, 
-            mas não foi salva no banco de dados.
-          </p>
-        ) : (
-          <p style={styles.messageText}>
-            🎨 A ilustração desta história não foi salva no banco de dados 
-            para otimizar o armazenamento e performance.
-          </p>
-        )}
-        
-        <div style={styles.infoBox}>
-          <p style={styles.infoText}>
-            <strong>💡 Por que isso acontece?</strong><br/>
-            • Imagens grandes ocupam muito espaço no banco<br/>
-            • Carregamento lento em conexões fracas<br/>
-            • Performance geral da aplicação
-          </p>
-        </div>
-        
-        {/* URL alternativa se disponível */}
-        {currentStory.illustrationUrl && currentStory.illustrationUrl.trim() !== '' && (
-          <div style={styles.alternativeUrl}>
-            <a 
-              href={currentStory.illustrationUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              style={styles.urlLink}
-            >
-              🔗 Ver imagem completa (link externo)
-            </a>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
   return (
     <div style={styles.container}>
       <h1 style={styles.title}>📚 Biblioteca de Textos</h1>
@@ -430,36 +217,29 @@ export default function StoriesPage({ stories, error, timestamp }) {
         <div style={styles.counterInfo}>
           <span style={styles.counterText}>
             <strong>Texto {currentStoryIndex + 1} de {stories.length}</strong>
-            {currentStory.hasImage && (
+            {currentStory.hasImageData && (
               <span style={{
-                ...styles.imageStatusBadge,
-                ...(currentStory.imageStatus === 'optimized' ? styles.optimizedBadge : 
-                    currentStory.imageStatus === 'too-large' ? styles.largeBadge : 
-                    styles.regularBadge)
+                ...styles.imageBadge,
+                ...(currentStory.imageType === 'placeholder' ? styles.placeholderBadge :
+                    currentStory.imageType === 'possibly-corrupted' ? styles.corruptedBadge : 
+                    styles.imageBadge)
               }}>
-                {currentStory.imageStatus === 'optimized' && '🖼️ Otimizada'}
-                {currentStory.imageStatus === 'has-image' && '🖼️ Imagem'}
-                {currentStory.imageStatus === 'too-large' && '📦 Muito Grande'}
-                {currentStory.imageStatus === 'no-image' && '📷 Sem Imagem'}
+                {currentStory.imageType === 'placeholder' && '📄 Placeholder'}
+                {currentStory.imageType === 'regular' && `🖼️ ${currentStory.imageSizeKB}KB`}
+                {currentStory.imageType === 'possibly-corrupted' && `⚠️ ${currentStory.imageSizeKB}KB`}
               </span>
             )}
           </span>
           <div style={styles.counterButtons}>
             <button 
-              onClick={() => {
-                setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1));
-                setImageLoadError(false);
-              }}
+              onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
               disabled={currentStoryIndex === 0}
               style={styles.navButton}
             >
               ← Anterior
             </button>
             <button 
-              onClick={() => {
-                setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1));
-                setImageLoadError(false);
-              }}
+              onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
               disabled={currentStoryIndex === stories.length - 1}
               style={styles.navButton}
             >
@@ -546,16 +326,115 @@ export default function StoriesPage({ stories, error, timestamp }) {
         </div>
       </div>
 
-      {/* SEÇÃO DE IMAGEM/THUMBNAIL (renderizada dinamicamente) */}
-      {renderImageSection()}
+      {/* SEÇÃO DE IMAGEM COM TRATAMENTO DE ERRO */}
+      <div style={styles.imageSection}>
+        <div style={styles.sectionHeader}>
+          <h3 style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>🎨</span>
+            Ilustração:
+          </h3>
+          {currentStory.hasImageData && currentStory.imageSizeKB > 0 && (
+            <div style={styles.imageInfo}>
+              <span style={styles.infoTag}>📏 {currentStory.imageSizeKB}KB</span>
+              {currentStory.imageType === 'placeholder' && (
+                <span style={{...styles.infoTag, backgroundColor: '#e0f2fe'}}>📄 Placeholder</span>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Container da imagem com tratamento de erro */}
+        <div style={styles.imageContainer} id={`image-container-${currentStory.id}`}>
+          {currentStory.hasImageData ? (
+            // Tentar mostrar imagem do banco
+            <img
+              src={`data:image/png;base64,${currentStory.illustrationb64}`}
+              alt="Ilustração da história"
+              style={styles.image}
+              onError={(e) => {
+                console.log('❌ Erro ao carregar imagem do banco');
+                
+                // Esconder imagem quebrada
+                e.target.style.display = 'none';
+                
+                // Mostrar mensagem explicativa
+                const container = document.getElementById(`image-container-${currentStory.id}`);
+                if (container) {
+                  container.innerHTML = `
+                    <div style="
+                      padding: 30px;
+                      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+                      border-radius: 10px;
+                      text-align: center;
+                      border: 2px dashed #f59e0b;
+                      color: #92400e;
+                    ">
+                      <div style="font-size: 40px; margin-bottom: 15px;">⚡</div>
+                      <h4 style="margin-top: 0; margin-bottom: 10px;">Imagem Otimizada para Armazenamento</h4>
+                      <p style="margin-bottom: 10px; line-height: 1.5;">
+                        Esta imagem foi <strong>comprimida para caber no banco de dados</strong> 
+                        (${currentStory.imageSizeKB}KB).
+                      </p>
+                      <p style="margin-bottom: 15px; line-height: 1.5;">
+                        <small>
+                          <em>
+                            🔧 Para ver a imagem completa, visualize-a durante a geração.<br/>
+                            📊 Essa otimização economiza espaço e melhora a performance.
+                          </em>
+                        </small>
+                      </p>
+                      <div style="
+                        background-color: rgba(255, 255, 255, 0.7);
+                        padding: 10px;
+                        border-radius: 6px;
+                        margin-top: 15px;
+                        font-size: 13px;
+                      ">
+                        <p style="margin: 0;">
+                          <strong>💡 Dica:</strong> As imagens são salvas em baixa resolução 
+                          para garantir que todas as histórias possam ser armazenadas.
+                        </p>
+                      </div>
+                    </div>
+                  `;
+                }
+              }}
+              onLoad={() => {
+                console.log('✅ Imagem carregada com sucesso do banco');
+              }}
+            />
+          ) : (
+            // Sem imagem
+            <div style={styles.noImageBox}>
+              <div style={{fontSize: '50px', marginBottom: '15px', opacity: 0.5}}>📷</div>
+              <h4>Nenhuma imagem salva</h4>
+              <p style={styles.infoText}>
+                Esta história não possui ilustração armazenada no banco de dados.
+              </p>
+            </div>
+          )}
+        </div>
+        
+        {/* Explicação adicional */}
+        {currentStory.hasImageData && (
+          <div style={styles.imageExplanation}>
+            <p style={styles.explanationText}>
+              <small>
+                <em>
+                  ⚡ <strong>Otimização:</strong> As imagens são compactadas para economizar 
+                  espaço no banco de dados. Isso permite armazenar mais histórias e 
+                  melhorar o desempenho da aplicação.
+                </em>
+              </small>
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Navegação Inferior */}
       <div style={styles.bottomNavigation}>
         <button 
-          onClick={() => {
-            setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1));
-            setImageLoadError(false);
-          }}
+          onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
           disabled={currentStoryIndex === 0}
           style={{...styles.bottomButton, ...styles.prevButton}}
         >
@@ -571,10 +450,7 @@ export default function StoriesPage({ stories, error, timestamp }) {
         </a>
         
         <button 
-          onClick={() => {
-            setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1));
-            setImageLoadError(false);
-          }}
+          onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
           disabled={currentStoryIndex === stories.length - 1}
           style={{...styles.bottomButton, ...styles.nextButton}}
         >
@@ -604,10 +480,9 @@ export default function StoriesPage({ stories, error, timestamp }) {
             gap: 10px;
           }
           
-          .thumbnail-info {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 5px;
+          .image-badge {
+            display: block;
+            margin-top: 5px;
           }
         }
       `}</style>
@@ -663,23 +538,21 @@ const styles = {
     flexDirection: 'column',
     gap: '5px',
   },
-  imageStatusBadge: {
+  imageBadge: {
     fontSize: '12px',
     padding: '3px 8px',
     borderRadius: '4px',
     display: 'inline-block',
-  },
-  optimizedBadge: {
-    background: 'rgba(34, 197, 94, 0.2)',
-    border: '1px solid rgba(34, 197, 94, 0.3)',
-  },
-  largeBadge: {
-    background: 'rgba(245, 158, 11, 0.2)',
-    border: '1px solid rgba(245, 158, 11, 0.3)',
-  },
-  regularBadge: {
     background: 'rgba(255, 255, 255, 0.2)',
     border: '1px solid rgba(255, 255, 255, 0.3)',
+  },
+  placeholderBadge: {
+    background: 'rgba(96, 165, 250, 0.3)',
+    borderColor: 'rgba(96, 165, 250, 0.5)',
+  },
+  corruptedBadge: {
+    background: 'rgba(245, 158, 11, 0.3)',
+    borderColor: 'rgba(245, 158, 11, 0.5)',
   },
   counterButtons: {
     display: 'flex',
@@ -803,173 +676,65 @@ const styles = {
     fontFamily: "'Georgia', serif",
   },
   
-  // THUMBNAIL OTIMIZADA
-  thumbnailSection: {
+  // SEÇÃO DE IMAGEM
+  imageSection: {
     marginBottom: '35px',
-    background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-    borderRadius: '12px',
-    padding: '25px',
-    border: '1px solid #bae6fd',
   },
-  thumbnailInfo: {
+  imageInfo: {
     display: 'flex',
     gap: '10px',
     flexWrap: 'wrap',
   },
   infoTag: {
-    background: '#e0f2fe',
+    background: '#e9ecef',
     padding: '4px 10px',
     borderRadius: '15px',
     fontSize: '12px',
-    color: '#0369a1',
+    color: '#495057',
     fontWeight: '600',
-  },
-  optimizedTag: {
-    background: '#d1fae5',
-    color: '#065f46',
-  },
-  thumbnailContainer: {
-    textAlign: 'center',
-    marginTop: '15px',
-  },
-  thumbnailImage: {
-    maxWidth: '400px',
-    maxHeight: '400px',
-    width: 'auto',
-    height: 'auto',
-    borderRadius: '8px',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-    border: '2px solid #7dd3fc',
-    backgroundColor: '#f8fafc',
-  },
-  imageCaption: {
-    marginTop: '15px',
-    padding: '10px',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: '8px',
-    maxWidth: '500px',
-    margin: '15px auto 0',
-  },
-  captionText: {
-    margin: '0',
-    color: '#475569',
-    fontSize: '13px',
-    lineHeight: '1.5',
-  },
-  thumbnailError: {
-    padding: '40px',
-    background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-    borderRadius: '10px',
-    textAlign: 'center',
-    color: '#dc2626',
-    border: '2px dashed #f87171',
-  },
-  
-  // IMAGEM REGULAR
-  imageSection: {
-    marginBottom: '35px',
-    background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-    borderRadius: '12px',
-    padding: '25px',
-    border: '1px solid #fcd34d',
   },
   imageContainer: {
     textAlign: 'center',
+    minHeight: '200px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  regularImage: {
-    maxWidth: '500px',
-    maxHeight: '500px',
-    width: 'auto',
+  image: {
+    maxWidth: '100%',
+    maxHeight: '400px',
     height: 'auto',
     borderRadius: '8px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-    border: '2px solid #f59e0b',
+    border: '1px solid #ddd',
     backgroundColor: '#f8fafc',
   },
-  imageError: {
+  noImageBox: {
     padding: '40px',
-    background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
     borderRadius: '10px',
     textAlign: 'center',
-    color: '#92400e',
-    border: '2px dashed #d97706',
-  },
-  
-  // IMAGEM MUITO GRANDE
-  largeImageSection: {
-    marginBottom: '35px',
-    background: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)',
-    borderRadius: '12px',
-    padding: '25px',
-    border: '1px solid #fdba74',
-  },
-  largeImageMessage: {
-    padding: '30px',
-    backgroundColor: 'white',
-    borderRadius: '10px',
-    textAlign: 'center',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
-  },
-  messageText: {
-    color: '#4b5563',
-    lineHeight: '1.6',
-    marginBottom: '20px',
-    maxWidth: '600px',
-    margin: '0 auto 20px',
-  },
-  recommendationBox: {
-    backgroundColor: '#fffbeb',
-    padding: '15px',
-    borderRadius: '8px',
-    borderLeft: '4px solid #f59e0b',
-    textAlign: 'left',
-    maxWidth: '600px',
-    margin: '0 auto',
-  },
-  recommendationText: {
-    color: '#92400e',
-    margin: '0',
-    fontSize: '14px',
-    lineHeight: '1.5',
-  },
-  
-  // SEM IMAGEM
-  noImageSection: {
-    marginBottom: '35px',
-  },
-  noImageMessage: {
-    padding: '40px',
-    background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-    borderRadius: '10px',
-    textAlign: 'center',
-    border: '2px dashed #cbd5e1',
-  },
-  infoBox: {
-    backgroundColor: '#f1f5f9',
-    padding: '15px',
-    borderRadius: '8px',
-    margin: '20px auto',
-    maxWidth: '600px',
-    textAlign: 'left',
+    color: '#6c757d',
+    border: '2px dashed #adb5bd',
+    width: '100%',
   },
   infoText: {
-    color: '#475569',
+    color: '#495057',
+    lineHeight: '1.5',
+    maxWidth: '500px',
+    margin: '10px auto',
+  },
+  imageExplanation: {
+    marginTop: '15px',
+    padding: '15px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    borderLeft: '4px solid #6c757d',
+  },
+  explanationText: {
     margin: '0',
-    fontSize: '14px',
-    lineHeight: '1.6',
-  },
-  alternativeUrl: {
-    marginTop: '20px',
-  },
-  urlLink: {
-    display: 'inline-block',
-    padding: '10px 20px',
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    textDecoration: 'none',
-    borderRadius: '6px',
-    fontWeight: '600',
-    transition: 'background-color 0.3s',
+    color: '#495057',
+    lineHeight: '1.5',
   },
   
   // NAVEGAÇÃO INFERIOR
@@ -1020,16 +785,6 @@ const styles = {
   generatorLink: {
     background: '#ffc107',
     color: '#212529',
-  },
-  retryButton: {
-    padding: '8px 16px',
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    marginTop: '10px',
-    fontSize: '14px',
   },
   
   // ESTILOS PARA ERROS
