@@ -9,7 +9,7 @@ const openai = new OpenAI({
 
 // ==================== CONFIGURAÇÕES ====================
 const CONFIG = {
-  IMAGE_SIZE: "256x256",           // Tamanho da imagem DALL-E
+  IMAGE_SIZE: "1024x1024",           // Tamanho da imagem DALL-E
   MAX_STORY_CHARS: 8000,          // Limite de caracteres para o texto
   MAX_RETRIES: 2,                 // Tentativas para gerar imagem
   RETRY_DELAY: 1000,              // Delay entre tentativas (ms)
