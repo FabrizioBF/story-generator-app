@@ -527,7 +527,7 @@ export default function StoryGenerator() {
                   <option value="story">História</option>
                   <option value="rhyming poetry">Poesia rimada</option>
                   <option value="poetry">Poesia</option>
-            <option value="literary prose">Prosa literária</option>
+                  <option value="literary prose">Prosa literária</option>
                   <option value="free verse">Verso livre</option>
                   <option value="short story">Conto</option>
                   <option value="fable">Fábula</option>
@@ -543,10 +543,10 @@ export default function StoryGenerator() {
                   <option value="parable">Parábola</option>
                   <option value="legends">Lendas</option>
                   <option value="literatura clássica">Clássica</option>
-            <option value="modernist literature">Modernista</option>
-            <option value="contemporary literature">Contemporânea</option>
-            <option value="cordel literature">Cordel</option>
-            <option value="intermedial literature">Intermidiática</option>
+                  <option value="modernist literature">Modernista</option>
+                  <option value="contemporary literature">Contemporânea</option>
+                  <option value="cordel literature">Cordel</option>
+                  <option value="intermedial literature">Intermidiática</option>
                 </select>
               </div>
             </div>
