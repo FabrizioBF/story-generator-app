@@ -1,4 +1,3 @@
-// pages/library.js - VERSÃO CORRIGIDA COM CSS-in-JS SEGURO
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 
@@ -210,7 +209,7 @@ export async function getServerSideProps() {
     await prisma.$queryRaw`SELECT 1`;
     console.log('✅ Conexão estabelecida com Neon DB');
 
-    // Buscar histórias
+    // Buscar histórias (SEM updatedAt)
     const stories = await prisma.story.findMany({
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -224,7 +223,7 @@ export async function getServerSideProps() {
         genre: true,
         literature: true,
         createdAt: true,
-        updatedAt: true
+        // updatedAt: true // REMOVIDO - campo não existe no banco ainda
       }
     });
 
@@ -249,7 +248,9 @@ export async function getServerSideProps() {
         displayTime: new Date(story.createdAt).toLocaleTimeString('pt-BR', { 
           hour: '2-digit', 
           minute: '2-digit' 
-        })
+        }),
+        // Use createdAt como fallback para updatedAt
+        updatedAt: story.createdAt // Fallback usando createdAt
       };
     });
     
