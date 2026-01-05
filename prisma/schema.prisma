@@ -12,18 +12,19 @@ datasource db {
 }
 
 model Story {
-  id             Int      @id @default(autoincrement())
-  text           String   @db.Text
-  illustrationb64 String   @db.Text  // Thumbnail comprimida (~50-100KB)
-  illustrationUrl String   @default("") // Opcional: URL da imagem completa
-  mainCharacter  String   @default("")
-  plot           String   @default("")
-  ending         String   @default("")
-  genre          String   @default("")
-  literature     String   @default("")
-  createdAt      DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  text             String   @db.Text
+  illustrationPath String?  
+  mainCharacter    String?  @db.VarChar(100)
+  plot             String?  @db.VarChar(200)
+  ending           String?  @db.VarChar(100)
+  genre            String?
+  literature       String?
+  createdAt        DateTime @default(now())
   
-  // Índices para performance
+
+  
   @@index([createdAt])
   @@index([genre])
+  @@index([literature])
 }

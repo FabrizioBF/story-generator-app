@@ -1,227 +1,437 @@
-// pages/api/generate-story.js - VERSÃO SIMPLES SEM BIBLIOTECAS
+// pages/api/generate-story.js - VERSÃO COM VERCEL BLOB STORAGE
 import OpenAI from "openai";
+import { put } from '@vercel/blob';
 
+// Inicializar cliente OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 // ==================== CONFIGURAÇÕES ====================
 const CONFIG = {
-  // Imagem BEM pequena
-  IMAGE_SIZE: "256x256",           // Pequeno desde a geração
-  MAX_IMAGE_KB: 50,                // Máximo 50KB
-  
-  // Texto
-  MAX_STORY_CHARS: 8000,
-  
-  // Controle
-  TRY_COMPRESSION: true
+  IMAGE_SIZE: "256x256",           // Tamanho da imagem DALL-E
+  MAX_STORY_CHARS: 8000,          // Limite de caracteres para o texto
+  MAX_RETRIES: 2,                 // Tentativas para gerar imagem
+  RETRY_DELAY: 1000,              // Delay entre tentativas (ms)
 };
 
-// ==================== FUNÇÃO SIMPLES DE "COMPRESSÃO" ====================
-function safeImageForDatabase(base64String) {
-  console.log('🔧 Preparando imagem para o banco...');
+// ==================== FUNÇÕES AUXILIARES ====================
+
+/**
+ * Upload de imagem para Vercel Blob Storage
+ */
+async function uploadToVercelBlob(imageData, storyId, retryCount = 0) {
+  console.log('☁️  Enviando imagem para Vercel Blob...');
   
-  if (!base64String || base64String.length === 0) {
-    console.log('❌ Sem imagem');
-    return "";
+  try {
+    const fileName = `story-${storyId}-${Date.now()}.png`;
+    const fileBuffer = Buffer.from(imageData, 'base64');
+    
+    // Configurações do upload
+    const blob = await put(fileName, fileBuffer, {
+      access: 'public',
+      contentType: 'image/png',
+      addRandomSuffix: true, // Adiciona sufixo aleatório para evitar colisões
+      metadata: {
+        storyId: storyId.toString(),
+        uploadedAt: new Date().toISOString(),
+        source: 'dall-e-3',
+        service: 'story-generator-app'
+      }
+    });
+    
+    console.log(`✅ Imagem enviada para Vercel Blob: ${blob.url}`);
+    console.log(`   ↳ Tamanho: ${Math.round(fileBuffer.length / 1024)}KB`);
+    console.log(`   ↳ Pathname: ${blob.pathname}`);
+    
+    return {
+      success: true,
+      url: blob.url,
+      pathname: blob.pathname,
+      sizeKB: Math.round(fileBuffer.length / 1024)
+    };
+    
+  } catch (error) {
+    console.error(`❌ Erro no upload para Vercel Blob (tentativa ${retryCount + 1}):`, error.message);
+    
+    // Tentar novamente se ainda houver tentativas
+    if (retryCount < CONFIG.MAX_RETRIES) {
+      console.log(`🔄 Tentando novamente em ${CONFIG.RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+      return uploadToVercelBlob(imageData, storyId, retryCount + 1);
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      url: null
+    };
   }
-  
-  const originalKB = Math.round(base64String.length / 1024);
-  console.log(`📊 Tamanho original: ${originalKB}KB`);
-  
-  // Se já for pequeno (< 50KB), usar como está
-  if (originalKB <= CONFIG.MAX_IMAGE_KB) {
-    console.log(`✅ Já pequeno (${originalKB}KB), mantendo`);
-    return base64String;
-  }
-  
-  // Se for muito grande, temos várias opções:
-  
-  // OPÇÃO A: Cortar a string (simples, mas pode corromper)
-  if (CONFIG.TRY_COMPRESSION) {
-    const maxLength = CONFIG.MAX_IMAGE_KB * 1024;
-    const cutImage = base64String.substring(0, maxLength);
-    const cutKB = Math.round(cutImage.length / 1024);
-    console.log(`✂️ Cortado para: ${cutKB}KB`);
-    return cutImage;
-  }
-  
-  // OPÇÃO B: Usar placeholder (mais seguro)
-  console.log('🔄 Usando placeholder seguro');
-  return createSafePlaceholder();
 }
 
-// Criar placeholder seguro (SVG minúsculo)
-function createSafePlaceholder() {
-  // SVG de 100x100 pixels (menos de 1KB)
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
-    <rect width="100" height="100" fill="#f0f0f0"/>
-    <circle cx="50" cy="50" r="30" fill="#ddd"/>
-    <text x="50" y="55" font-family="Arial" font-size="12" fill="#666" text-anchor="middle">🎨</text>
-  </svg>`;
-  
-  return Buffer.from(svg).toString('base64');
+/**
+ * Gerar imagem com DALL-E com retry logic
+ */
+async function generateDalleImage(prompt, retryCount = 0) {
+  try {
+    console.log(`🎨 Gerando imagem DALL-E (tentativa ${retryCount + 1})...`);
+    
+    const imageResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: prompt,
+      size: CONFIG.IMAGE_SIZE,
+      quality: "standard",
+      n: 1,
+      response_format: "b64_json",
+      style: "natural",
+    });
+    
+    const imageData = imageResponse.data[0].b64_json;
+    console.log(`✅ Imagem DALL-E gerada: ${Math.round(imageData.length / 1024)}KB`);
+    
+    return {
+      success: true,
+      data: imageData,
+      sizeKB: Math.round(imageData.length / 1024)
+    };
+    
+  } catch (error) {
+    console.error(`❌ Erro DALL-E (tentativa ${retryCount + 1}):`, error.message);
+    
+    // Verificar se é um erro de conteúdo e ajustar prompt
+    if (error.message.includes('content_policy') && retryCount < CONFIG.MAX_RETRIES) {
+      console.log('⚠️  Violação de política de conteúdo, ajustando prompt...');
+      const saferPrompt = `Ilustração educacional familiar, estilo cartoon suave, cores pasteis. 
+                          Tema apropriado para educação: ${prompt.substring(0, 100)}...`;
+      
+      await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+      return generateDalleImage(saferPrompt, retryCount + 1);
+    }
+    
+    // Tentar novamente para outros erros
+    if (retryCount < CONFIG.MAX_RETRIES) {
+      console.log(`🔄 Tentando novamente em ${CONFIG.RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+      return generateDalleImage(prompt, retryCount + 1);
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      data: null
+    };
+  }
 }
 
-// Criar imagem de erro (quando DALL-E falha)
-function createErrorImage() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
-    <rect width="100" height="100" fill="#fee2e2"/>
-    <text x="50" y="40" font-family="Arial" font-size="10" fill="#dc2626" text-anchor="middle">Erro</text>
-    <text x="50" y="60" font-family="Arial" font-size="10" fill="#dc2626" text-anchor="middle">na Imagem</text>
-  </svg>`;
-  
-  return Buffer.from(svg).toString('base64');
-}
-
-// ==================== SALVAR NO BANCO ====================
-async function saveToNeonDB(storyText, safeImage, userData) {
+/**
+ * Salvar história no Neon DB
+ */
+async function saveToNeonDB(storyText, imageUrl, userData, initialSave = false) {
   console.log('💾 Salvando no NeonDB...');
   
   try {
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient();
     
-    // Garantir que a imagem não seja muito grande
-    let finalImage = safeImage || createSafePlaceholder();
-    if (finalImage.length > 60000) { // ~60KB
-      console.log('⚠️  Imagem ainda grande, usando placeholder');
-      finalImage = createSafePlaceholder();
-    }
-    
-    // Preparar texto
+    // Preparar texto (truncar se necessário)
     const maxChars = CONFIG.MAX_STORY_CHARS;
-    const story = storyText.length > maxChars 
-      ? storyText.substring(0, maxChars) + '...' 
+    const finalStory = storyText.length > maxChars 
+      ? storyText.substring(0, maxChars) + '... [continua]' 
       : storyText;
     
-    // Inserir
-    const result = await prisma.story.create({
-      data: {
-        text: story,
-        illustrationb64: finalImage,
-        mainCharacter: (userData.mainCharacter || "").substring(0, 100),
-        plot: (userData.plot || "").substring(0, 200),
-        ending: (userData.ending || "").substring(0, 100),
-        genre: userData.genre || "",
-        literature: userData.literature || ""
-      }
-    });
+    const data = {
+      text: finalStory,
+      mainCharacter: (userData.mainCharacter || "").substring(0, 100),
+      plot: (userData.plot || "").substring(0, 200),
+      ending: (userData.ending || "").substring(0, 100),
+      genre: userData.genre || "",
+      literature: userData.literature || ""
+    };
     
-    console.log(`✅ Salvo! ID: ${result.id}`);
-    return { success: true, id: result.id };
+    let result;
+    
+    if (initialSave) {
+      // Primeiro save (sem imagem ainda)
+      result = await prisma.story.create({
+        data: data
+      });
+      console.log(`📝 História salva inicialmente - ID: ${result.id}`);
+    } else {
+      // Update com URL da imagem
+      data.illustrationPath = imageUrl;
+      result = await prisma.story.update({
+        where: { id: userData.storyId },
+        data: data
+      });
+      console.log(`🖼️  História atualizada com imagem - ID: ${result.id}`);
+    }
+    
+    await prisma.$disconnect();
+    
+    return {
+      success: true,
+      id: result.id,
+      storyId: result.id,
+      imageUrl: imageUrl
+    };
     
   } catch (error) {
-    console.error('❌ Erro ao salvar:', error.message);
-    return { success: false, error: error.message };
+    console.error('❌ Erro ao salvar no NeonDB:', error.message);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }
 
-// ==================== HANDLER PRINCIPAL ====================
-export default async function handler(req, res) {
-  // Validações básicas
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' });
-  
-  const { mainCharacter, plot, ending, genre, literature } = req.body;
-  if (!mainCharacter || !plot || !ending) {
-    return res.status(400).json({ error: 'Campos obrigatórios faltando' });
-  }
-  
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: 'OPENAI_API_KEY não configurada' });
-  }
+/**
+ * Gerar texto com GPT
+ */
+async function generateStoryText(userData) {
+  console.log('📝 Gerando texto da história...');
   
   try {
-    console.log('🚀 Iniciando geração...');
-    
-    // 1. GERAR TEXTO
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: "Escreva textos de 150-200 palavras em português, claros e envolventes."
+          content: `Você é um escritor especializado em criar histórias educacionais para estudantes.
+                    Escreva textos claros, envolventes e apropriados para o público estudantil.
+                    Use linguagem acessível mas rica em vocabulário.
+                    Tamanho: 150-200 palavras.
+                    Idioma: Português do Brasil.`
         },
         {
           role: "user",
-          content: `Crie ${literature || 'uma história'} no gênero ${genre}.
-          Personagem: ${mainCharacter}
-          Enredo: ${plot}
-          Desfecho: ${ending}
-          Máximo 200 palavras.`
+          content: `Crie ${userData.literature || 'uma história'} no gênero ${userData.genre}.
+                    Personagem Principal: ${userData.mainCharacter}
+                    Enredo: ${userData.plot}
+                    Desfecho: ${userData.ending}
+                    
+                    Por favor, inclua:
+                    1. Introdução do personagem e contexto
+                    2. Desenvolvimento do enredo
+                    3. Clímax da história
+                    4. Desfecho conforme solicitado
+                    5. Uma moral ou aprendizado (opcional)`
         }
       ],
-      max_tokens: 500,
+      max_tokens: 800,
       temperature: 0.7,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.2,
     });
     
     const storyText = gptResponse.choices[0].message.content;
-    console.log(`✅ Texto: ${storyText.length} caracteres`);
+    const wordCount = storyText.split(/\s+/).length;
     
-    // 2. GERAR IMAGEM (tentar, mas não é crítico)
-    let dalleImage = "";
-    let savedImage = "";
+    console.log(`✅ Texto gerado: ${wordCount} palavras, ${storyText.length} caracteres`);
     
-    try {
-      console.log('🎨 Gerando imagem 256x256...');
-      
-      const imageResponse = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: `Ilustração educacional simples, estilo cartoon, cores básicas. Tema: ${mainCharacter} em ${plot.substring(0, 50)}...`,
-        size: CONFIG.IMAGE_SIZE, // 256x256
-        quality: "standard",
-        n: 1,
-        response_format: "b64_json",
+    return {
+      success: true,
+      text: storyText,
+      wordCount: wordCount,
+      charCount: storyText.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Erro ao gerar texto:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      text: null
+    };
+  }
+}
+
+// ==================== HANDLER PRINCIPAL ====================
+export default async function handler(req, res) {
+  // Configurar CORS para desenvolvimento
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Lidar com preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  // Validações básicas
+  if (req.method !== 'POST') {
+    return res.status(405).json({ 
+      success: false,
+      error: 'Método não permitido. Use POST.' 
+    });
+  }
+  
+  // Validar corpo da requisição
+  let body;
+  try {
+    body = req.body;
+    
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Corpo da requisição inválido.' 
       });
-      
-      dalleImage = imageResponse.data[0].b64_json;
-      console.log(`✅ Imagem DALL-E: ${Math.round(dalleImage.length / 1024)}KB`);
-      
-      // Preparar para salvar no banco
-      savedImage = safeImageForDatabase(dalleImage);
-      
-    } catch (imageError) {
-      console.log('⚠️  Sem imagem DALL-E:', imageError.message);
-      savedImage = createErrorImage();
     }
     
-    // 3. SALVAR NO BANCO
-    console.log('💾 Salvando...');
-    const saveResult = await saveToNeonDB(storyText, savedImage, {
+  } catch (parseError) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Erro ao analisar JSON: ' + parseError.message 
+    });
+  }
+  
+  const { mainCharacter, plot, ending, genre, literature } = body;
+  
+  // Validar campos obrigatórios
+  if (!mainCharacter || !plot || !ending) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Campos obrigatórios faltando. Preencha: Personagem, Enredo e Desfecho.',
+      required: ['mainCharacter', 'plot', 'ending']
+    });
+  }
+  
+  // Validar OpenAI API Key
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('❌ OPENAI_API_KEY não configurada');
+    return res.status(500).json({ 
+      success: false,
+      error: 'Configuração do servidor incompleta.' 
+    });
+  }
+  
+  console.log('🚀 Iniciando geração de história...');
+  console.log(`📋 Dados recebidos:`, {
+    personagem: mainCharacter.substring(0, 50),
+    enredo: plot.substring(0, 50),
+    desfecho: ending.substring(0, 50),
+    genero: genre,
+    tipo: literature
+  });
+  
+  try {
+    // 1. GERAR TEXTO DA HISTÓRIA
+    const textResult = await generateStoryText({
       mainCharacter, plot, ending, genre, literature
     });
     
-    // 4. RESPOSTA
-    const response = {
+    if (!textResult.success) {
+      throw new Error(`Falha ao gerar texto: ${textResult.error}`);
+    }
+    
+    // 2. SALVAR TEXTO NO BANCO (SEM IMAGEM AINDA)
+    const initialSave = await saveToNeonDB(
+      textResult.text, 
+      null, 
+      { mainCharacter, plot, ending, genre, literature },
+      true
+    );
+    
+    if (!initialSave.success) {
+      throw new Error(`Falha ao salvar texto: ${initialSave.error}`);
+    }
+    
+    const storyId = initialSave.id;
+    console.log(`📦 História salva com ID: ${storyId}`);
+    
+    // 3. GERAR IMAGEM COM DALL-E
+    let imageResult = { success: false, data: null };
+    let blobResult = { success: false, url: null };
+    
+    // Criar prompt para a imagem
+    const imagePrompt = `Ilustração educacional, estilo cartoon limpo, cores vibrantes mas suaves, 
+                         apropriada para ambiente educacional. Mostre: ${mainCharacter} em uma cena 
+                         relacionada a ${plot.substring(0, 60)}... 
+                         Estilo: ilustração digital amigável, linhas limpas.`;
+    
+    // Tentar gerar imagem (pode falhar - não é crítico)
+    try {
+      imageResult = await generateDalleImage(imagePrompt);
+      
+      if (imageResult.success && imageResult.data) {
+        // 4. UPLOAD PARA VERCEL BLOB
+        blobResult = await uploadToVercelBlob(imageResult.data, storyId);
+        
+        if (blobResult.success && blobResult.url) {
+          // 5. ATUALIZAR BANCO COM URL DA IMAGEM
+          await saveToNeonDB(
+            textResult.text,
+            blobResult.url,
+            { 
+              mainCharacter, plot, ending, genre, literature,
+              storyId: storyId 
+            },
+            false
+          );
+        }
+      }
+    } catch (imageError) {
+      console.log('⚠️  Processo de imagem falhou, continuando sem imagem:', imageError.message);
+      // Continuar sem imagem - não é um erro crítico
+    }
+    
+    // 6. PREPARAR RESPOSTA
+    const responseData = {
       success: true,
-      story: storyText,
-      // Imagem completa para mostrar agora
-      imageNow: dalleImage || "",
-      // Imagem que foi salva (pode ser diferente)
-      imageSaved: savedImage || "",
+      storyId: storyId,
+      story: textResult.text,
       metadata: {
-        textLength: storyText.length,
-        hasDalleImage: !!dalleImage,
-        dalleSize: dalleImage ? `${Math.round(dalleImage.length / 1024)}KB` : 'N/A',
-        savedSize: savedImage ? `${Math.round(savedImage.length / 1024)}KB` : 'N/A',
-        note: 'Imagem pode ser reduzida para caber no banco'
-      },
-      database: {
-        saved: saveResult.success,
-        storyId: saveResult.id
+        text: {
+          wordCount: textResult.wordCount,
+          charCount: textResult.charCount
+        },
+        image: {
+          generated: imageResult.success,
+          uploaded: blobResult.success,
+          url: blobResult.url || null,
+          sizeKB: imageResult.sizeKB || 0,
+          blobSizeKB: blobResult.sizeKB || 0
+        },
+        userInput: {
+          mainCharacter: mainCharacter.substring(0, 100),
+          plot: plot.substring(0, 150),
+          ending: ending.substring(0, 100),
+          genre: genre,
+          literature: literature
+        },
+        timestamps: {
+          generatedAt: new Date().toISOString(),
+          storage: 'vercel-blob'
+        }
       }
     };
     
-    console.log('🎉 Concluído!');
-    res.status(200).json(response);
+    // Incluir imagem base64 apenas se solicitado (para exibição imediata)
+    if (req.body.includeBase64 && imageResult.data) {
+      responseData.imageBase64 = imageResult.data;
+      console.log('📤 Incluindo base64 na resposta (para preview)');
+    }
+    
+    console.log('🎉 Geração concluída com sucesso!');
+    console.log(`📊 Resumo: ${textResult.wordCount} palavras, ` +
+                `Imagem: ${imageResult.success ? '✓' : '✗'}, ` +
+                `Blob: ${blobResult.success ? '✓' : '✗'}`);
+    
+    // 7. ENVIAR RESPOSTA
+    return res.status(200).json(responseData);
     
   } catch (error) {
-    console.error('💥 ERRO:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Erro interno',
-      details: error.message 
-    });
+    console.error('💥 ERRO CRÍTICO NO HANDLER:', error);
+    
+    // Tentar fornecer uma resposta útil mesmo em caso de erro
+    const errorResponse = {
+      success: false,
+      error: 'Erro interno ao processar sua solicitação.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      suggestion: 'Tente novamente em alguns instantes.',
+      timestamp: new Date().toISOString()
+    };
+    
+    return res.status(500).json(errorResponse);
   }
 }

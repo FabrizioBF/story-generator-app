@@ -1,22 +1,40 @@
-// pages/library.js - VERSÃO COM TRATAMENTO DE ERRO DE IMAGEM
-import { useState } from 'react';
+// pages/library.js - VERSÃO COM VERCEL BLOB STORAGE
+import { useState, useEffect } from 'react';
+import Head from 'next/head';
 
-// Função para extrair informações do usuário do texto
-function extractUserDataFromStory(storyText) {
+// Função para extrair informações do texto da história
+function extractStoryMetadata(storyText) {
   const defaultData = {
+    title: "História sem título",
     mainCharacter: "Não informado",
     plot: "Não informado", 
     ending: "Não informado",
     genre: "Não informado",
     literature: "Não informado",
-    hasStructuredData: false
+    extractedFromText: false,
+    wordCount: 0
   };
 
   if (!storyText || typeof storyText !== 'string') {
     return { ...defaultData, cleanStory: storyText || "" };
   }
 
-  // Primeiro, tenta extrair do formato estruturado no final do texto
+  // Calcular contagem de palavras
+  const words = storyText.trim().split(/\s+/);
+  defaultData.wordCount = words.length;
+
+  // Tentar extrair título (primeira linha ou parágrafo)
+  const lines = storyText.split('\n').filter(line => line.trim());
+  if (lines.length > 0) {
+    const firstLine = lines[0].trim();
+    if (firstLine.length > 10 && firstLine.length < 100 && !firstLine.includes(' ')) {
+      defaultData.title = firstLine;
+    } else if (firstLine.length > 0) {
+      defaultData.title = firstLine.substring(0, 60) + (firstLine.length > 60 ? '...' : '');
+    }
+  }
+
+  // Tentar extrair do formato estruturado
   const infoSectionStart = "=== DADOS ===";
   const infoSectionEnd = "=============";
   
@@ -25,9 +43,9 @@ function extractUserDataFromStory(storyText) {
   
   if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
     const infoText = storyText.substring(startIndex + infoSectionStart.length, endIndex);
-    const lines = infoText.split('\n').filter(line => line.trim());
+    const infoLines = infoText.split('\n').filter(line => line.trim());
     
-    lines.forEach(line => {
+    infoLines.forEach(line => {
       const trimmedLine = line.trim();
       if (trimmedLine.includes('Personagem:')) {
         defaultData.mainCharacter = trimmedLine.split('Personagem:')[1]?.trim() || "Não informado";
@@ -46,20 +64,124 @@ function extractUserDataFromStory(storyText) {
       }
     });
     
-    // Remove a seção de informações do texto principal para exibição
+    // Remover seção de informações do texto principal
     const cleanStory = storyText.substring(0, startIndex).trim();
     return { 
       ...defaultData, 
       cleanStory,
-      hasStructuredData: true
+      extractedFromText: true
     };
   }
   
-  return { ...defaultData, cleanStory: storyText };
+  return { ...defaultData, cleanStory: storyText, extractedFromText: false };
 }
 
+// Componente de imagem com tratamento de erro
+function StoryImage({ imageUrl, storyId, title, onError }) {
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setHasError(false);
+    setIsLoading(true);
+  }, [imageUrl]);
+
+  if (!imageUrl) {
+    return (
+      <div style={styles.noImagePlaceholder}>
+        <div style={styles.placeholderIcon}>🖼️</div>
+        <p style={styles.placeholderText}>Sem ilustração</p>
+      </div>
+    );
+  }
+
+  const handleError = (e) => {
+    console.error(`❌ Erro ao carregar imagem ${storyId}:`, imageUrl);
+    setHasError(true);
+    setIsLoading(false);
+    if (onError) onError(e);
+  };
+
+  const handleLoad = () => {
+    console.log(`✅ Imagem carregada: ${storyId}`);
+    setIsLoading(false);
+  };
+
+  return (
+    <div style={styles.imageWrapper}>
+      {isLoading && (
+        <div style={styles.imageLoading}>
+          <div style={styles.spinner}></div>
+          <p style={styles.loadingText}>Carregando imagem...</p>
+        </div>
+      )}
+      
+      {hasError ? (
+        <div style={styles.imageError}>
+          <div style={styles.errorIcon}>⚠️</div>
+          <p style={styles.errorText}>Imagem não disponível</p>
+          <a 
+            href={imageUrl} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={styles.externalLink}
+          >
+            Tentar abrir externamente
+          </a>
+        </div>
+      ) : (
+        <img
+          src={imageUrl}
+          alt={`Ilustração: ${title}`}
+          style={{
+            ...styles.image,
+            display: isLoading ? 'none' : 'block'
+          }}
+          onError={handleError}
+          onLoad={handleLoad}
+          loading="lazy"
+          crossOrigin="anonymous"
+        />
+      )}
+      
+      <div style={styles.imageFooter}>
+        <span style={styles.storageBadge}>
+          ☁️ Vercel Blob
+        </span>
+        <a 
+          href={imageUrl} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={styles.viewOriginal}
+          title="Abrir imagem original"
+        >
+          🔗
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// Componente de informação
+function InfoCard({ icon, label, value, color = '#3b82f6' }) {
+  return (
+    <div style={styles.infoCard}>
+      <div style={styles.infoHeader}>
+        <span style={{ ...styles.infoIcon, backgroundColor: `${color}20` }}>
+          {icon}
+        </span>
+        <span style={styles.infoLabel}>{label}</span>
+      </div>
+      <div style={styles.infoValueContainer}>
+        <p style={styles.infoValue}>{value || "Não informado"}</p>
+      </div>
+    </div>
+  );
+}
+
+// Buscar dados do servidor
 export async function getServerSideProps() {
-  console.log('📚 Biblioteca: Iniciando carregamento...');
+  console.log('📚 Biblioteca: Carregando histórias...');
   
   if (!process.env.DATABASE_URL) {
     console.log('⚠️  DATABASE_URL não configurada');
@@ -67,64 +189,64 @@ export async function getServerSideProps() {
       props: { 
         stories: [],
         error: 'Banco de dados não configurado',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        totalStories: 0
       } 
     };
   }
 
   try {
-    console.log('🔗 Conectando ao banco...');
+    console.log('🔗 Conectando ao Neon DB...');
     
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient({
       datasources: { db: { url: process.env.DATABASE_URL } }
     });
 
+    // Testar conexão
     await prisma.$queryRaw`SELECT 1`;
-    console.log('✅ Conexão estabelecida');
+    console.log('✅ Conexão estabelecida com Neon DB');
 
     // Buscar histórias
     const stories = await prisma.story.findMany({
-      orderBy: { id: 'desc' },
-      take: 50,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
       select: {
         id: true,
         text: true,
-        illustrationb64: true,
-        illustrationUrl: true,
-        createdAt: true,
+        illustrationPath: true, // URL do Vercel Blob
         mainCharacter: true,
         plot: true,
         ending: true,
         genre: true,
-        literature: true
+        literature: true,
+        createdAt: true,
+        updatedAt: true
       }
     });
 
     console.log(`📖 ${stories.length} histórias encontradas`);
     
-    // Analisar imagens
-    const storiesWithImageInfo = stories.map(story => {
-      const hasImageData = story.illustrationb64 && story.illustrationb64.length > 100;
-      const imageSizeKB = hasImageData ? Math.round(story.illustrationb64.length / 1024) : 0;
+    // Processar dados
+    const processedStories = stories.map(story => {
+      // Extrair metadados do texto
+      const metadata = extractStoryMetadata(story.text);
       
-      // Determinar tipo de imagem
-      let imageType = 'none';
-      if (hasImageData) {
-        if (imageSizeKB < 5) {
-          imageType = 'placeholder';
-        } else if (imageSizeKB > 100) {
-          imageType = 'possibly-corrupted';
-        } else {
-          imageType = 'regular';
-        }
-      }
+      // Verificar URL da imagem
+      const hasImage = story.illustrationPath && story.illustrationPath.length > 10;
+      const isVercelBlobUrl = hasImage && story.illustrationPath.includes('vercel-storage.com');
       
       return {
         ...story,
-        hasImageData,
-        imageSizeKB,
-        imageType
+        ...metadata,
+        hasImage,
+        isVercelBlobUrl,
+        imageType: isVercelBlobUrl ? 'vercel-blob' : 'external-url',
+        displayDate: new Date(story.createdAt).toLocaleDateString('pt-BR'),
+        displayTime: new Date(story.createdAt).toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        })
       };
     });
     
@@ -132,42 +254,84 @@ export async function getServerSideProps() {
     
     return { 
       props: { 
-        stories: JSON.parse(JSON.stringify(storiesWithImageInfo)),
+        stories: JSON.parse(JSON.stringify(processedStories)),
         error: null,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        totalStories: processedStories.length
       } 
     };
     
   } catch (error) {
-    console.error('❌ ERRO:', error.message);
+    console.error('❌ ERRO no servidor:', error.message);
     
     return { 
       props: { 
         stories: [],
-        error: `Falha: ${error.message}`,
-        timestamp: new Date().toISOString()
+        error: `Falha ao conectar ao banco: ${error.message}`,
+        timestamp: new Date().toISOString(),
+        totalStories: 0
       } 
     };
   }
 }
 
-export default function StoriesPage({ stories, error, timestamp }) {
+// Componente principal
+export default function StoriesPage({ stories, error, timestamp, totalStories }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [imageErrors, setImageErrors] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredStories, setFilteredStories] = useState(stories);
 
-  // Tratar erros
+  // Filtrar histórias baseado na busca
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredStories(stories);
+      return;
+    }
+
+    const term = searchTerm.toLowerCase();
+    const filtered = stories.filter(story => {
+      return (
+        story.text.toLowerCase().includes(term) ||
+        story.mainCharacter.toLowerCase().includes(term) ||
+        story.plot.toLowerCase().includes(term) ||
+        story.genre.toLowerCase().includes(term) ||
+        story.literature.toLowerCase().includes(term)
+      );
+    });
+
+    setFilteredStories(filtered);
+    setCurrentStoryIndex(0); // Resetar para primeira história
+  }, [searchTerm, stories]);
+
+  // Tratar erros de carregamento
   if (error) {
     return (
-      <div style={styles.container}>
-        <h1 style={styles.title}>📚 Biblioteca de Textos</h1>
-        <div style={styles.errorBox}>
-          <h3>⚠️ Erro de Conexão</h3>
-          <p>{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            style={styles.button}
-          >
-            🔄 Tentar Novamente
-          </button>
+      <div style={styles.pageContainer}>
+        <Head>
+          <title>Biblioteca - Erro</title>
+        </Head>
+        
+        <div style={styles.errorPage}>
+          <h1 style={styles.errorTitle}>📚 Biblioteca de Textos</h1>
+          <div style={styles.errorMessage}>
+            <h2>⚠️ Erro de Conexão</h2>
+            <p>{error}</p>
+            <p style={styles.errorHint}>
+              Verifique se o banco de dados está configurado corretamente.
+            </p>
+            <div style={styles.errorActions}>
+              <button 
+                onClick={() => window.location.reload()}
+                style={styles.retryButton}
+              >
+                🔄 Tentar Novamente
+              </button>
+              <a href="/" style={styles.homeButton}>
+                🏠 Página Inicial
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -176,313 +340,355 @@ export default function StoriesPage({ stories, error, timestamp }) {
   // Sem histórias
   if (stories.length === 0) {
     return (
-      <div style={styles.container}>
-        <h1 style={styles.title}>📚 Biblioteca de Textos</h1>
-        <div style={styles.emptyBox}>
-          <div style={{fontSize: '50px', marginBottom: '20px'}}>📭</div>
-          <h3>Nenhum texto encontrado</h3>
-          <p>Os textos gerados aparecerão aqui.</p>
-          <p><small>Última verificação: {new Date(timestamp).toLocaleString()}</small></p>
-          <a href="/story-generator" style={styles.createButton}>
-            ➕ Criar Primeiro Texto
-          </a>
+      <div style={styles.pageContainer}>
+        <Head>
+          <title>Biblioteca Vazia</title>
+        </Head>
+        
+        <div style={styles.emptyLibrary}>
+          <h1 style={styles.libraryTitle}>📚 Biblioteca de Textos</h1>
+          <div style={styles.emptyMessage}>
+            <div style={styles.emptyIcon}>📭</div>
+            <h2>Nenhum texto encontrado</h2>
+            <p>Os textos gerados aparecerão aqui automaticamente.</p>
+            <p style={styles.timestamp}>
+              Última verificação: {new Date(timestamp).toLocaleString('pt-BR')}
+            </p>
+            <div style={styles.emptyActions}>
+              <a href="/story-generator" style={styles.createButton}>
+                ✨ Criar Primeira História
+              </a>
+              <a href="/" style={styles.homeLink}>
+                🏠 Voltar ao Início
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   // História atual
-  const currentStory = stories[currentStoryIndex];
+  const currentStory = filteredStories[currentStoryIndex] || filteredStories[0];
   
-  // Extrair dados do usuário do texto
-  const userData = extractUserDataFromStory(currentStory.text || "");
-  const displayStory = userData.cleanStory || currentStory.text;
-  
-  // Preferir dados diretos do banco se disponíveis
-  const finalUserData = {
-    mainCharacter: currentStory.mainCharacter || userData.mainCharacter,
-    plot: currentStory.plot || userData.plot,
-    ending: currentStory.ending || userData.ending,
-    genre: currentStory.genre || userData.genre,
-    literature: currentStory.literature || userData.literature,
-    hasStructuredData: userData.hasStructuredData
+  if (!currentStory) {
+    return (
+      <div style={styles.pageContainer}>
+        <h1 style={styles.libraryTitle}>📚 Biblioteca de Textos</h1>
+        <div style={styles.noResults}>
+          <p>Nenhuma história encontrada para "{searchTerm}"</p>
+          <button 
+            onClick={() => setSearchTerm('')}
+            style={styles.clearSearchButton}
+          >
+            Limpar busca
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleImageError = (storyId) => (e) => {
+    console.log(`Imagem ${storyId} falhou ao carregar`);
+    setImageErrors(prev => ({ ...prev, [storyId]: true }));
   };
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>📚 Biblioteca de Textos</h1>
-      
-      {/* Contador e navegação */}
-      <div style={styles.counterBox}>
-        <div style={styles.counterInfo}>
-          <span style={styles.counterText}>
-            <strong>Texto {currentStoryIndex + 1} de {stories.length}</strong>
-            {currentStory.hasImageData && (
-              <span style={{
-                ...styles.imageBadge,
-                ...(currentStory.imageType === 'placeholder' ? styles.placeholderBadge :
-                    currentStory.imageType === 'possibly-corrupted' ? styles.corruptedBadge : 
-                    styles.imageBadge)
-              }}>
-                {currentStory.imageType === 'placeholder' && '📄 Placeholder'}
-                {currentStory.imageType === 'regular' && `🖼️ ${currentStory.imageSizeKB}KB`}
-                {currentStory.imageType === 'possibly-corrupted' && `⚠️ ${currentStory.imageSizeKB}KB`}
-              </span>
-            )}
+    <div style={styles.pageContainer}>
+      <Head>
+        <title>Biblioteca - {currentStory.title}</title>
+        <meta name="description" content="Biblioteca de histórias geradas com IA" />
+      </Head>
+
+      {/* Cabeçalho */}
+      <header style={styles.header}>
+        <h1 style={styles.libraryTitle}>
+          📚 Biblioteca de Textos
+          <span style={styles.counterBadge}>
+            {totalStories} {totalStories === 1 ? 'história' : 'histórias'}
           </span>
-          <div style={styles.counterButtons}>
-            <button 
-              onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
-              disabled={currentStoryIndex === 0}
-              style={styles.navButton}
-            >
-              ← Anterior
-            </button>
-            <button 
-              onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
-              disabled={currentStoryIndex === stories.length - 1}
-              style={styles.navButton}
-            >
-              Próximo →
-            </button>
-          </div>
-        </div>
-        {currentStory.createdAt && (
-          <div style={styles.timestamp}>
-            📅 {new Date(currentStory.createdAt).toLocaleDateString('pt-BR')}
-            {' '}🕐 {new Date(currentStory.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-          </div>
-        )}
-      </div>
-
-      {/* SEÇÃO DE INFORMAÇÕES DO USUÁRIO */}
-      <div style={styles.userInfoSection}>
-        <h3 style={styles.sectionTitle}>
-          <span style={styles.infoIcon}>📋</span>
-          Informações Fornecidas pelo Usuário:
-        </h3>
+        </h1>
         
-        <div style={styles.infoGrid}>
-          {/* Personagem Principal */}
-          <div style={styles.infoCard}>
-            <div style={styles.infoHeader}>
-              <span style={styles.infoIcon}>👤</span>
-              <span style={styles.infoLabel}>Personagem Principal</span>
-            </div>
-            <p style={styles.infoValue}>{finalUserData.mainCharacter}</p>
-          </div>
-          
-          {/* Enredo */}
-          <div style={styles.infoCard}>
-            <div style={styles.infoHeader}>
-              <span style={styles.infoIcon}>📖</span>
-              <span style={styles.infoLabel}>Enredo</span>
-            </div>
-            <p style={styles.infoValue}>{finalUserData.plot}</p>
-          </div>
-          
-          {/* Desfecho */}
-          <div style={styles.infoCard}>
-            <div style={styles.infoHeader}>
-              <span style={styles.infoIcon}>🎭</span>
-              <span style={styles.infoLabel}>Desfecho</span>
-            </div>
-            <p style={styles.infoValue}>{finalUserData.ending}</p>
-          </div>
-          
-          {/* Gênero */}
-          <div style={styles.infoCard}>
-            <div style={styles.infoHeader}>
-              <span style={styles.infoIcon}>🎨</span>
-              <span style={styles.infoLabel}>Gênero</span>
-            </div>
-            <p style={styles.infoValue}>{finalUserData.genre}</p>
-          </div>
-          
-          {/* Tipo de Literatura */}
-          <div style={styles.infoCard}>
-            <div style={styles.infoHeader}>
-              <span style={styles.infoIcon}>📚</span>
-              <span style={styles.infoLabel}>Tipo de Literatura</span>
-            </div>
-            <p style={styles.infoValue}>{finalUserData.literature}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Texto Gerado */}
-      <div style={styles.storySection}>
-        <div style={styles.sectionHeader}>
-          <h3 style={styles.sectionTitle}>
-            <span style={styles.sectionIcon}>📖</span>
-            Texto Gerado:
-          </h3>
-          <div style={styles.wordCount}>
-            📝 {displayStory.split(/\s+/).length} palavras
-          </div>
-        </div>
-        <div style={styles.storyBox}>
-          <p style={styles.storyText}>{displayStory}</p>
-        </div>
-      </div>
-
-      {/* SEÇÃO DE IMAGEM COM TRATAMENTO DE ERRO */}
-      <div style={styles.imageSection}>
-        <div style={styles.sectionHeader}>
-          <h3 style={styles.sectionTitle}>
-            <span style={styles.sectionIcon}>🎨</span>
-            Ilustração:
-          </h3>
-          {currentStory.hasImageData && currentStory.imageSizeKB > 0 && (
-            <div style={styles.imageInfo}>
-              <span style={styles.infoTag}>📏 {currentStory.imageSizeKB}KB</span>
-              {currentStory.imageType === 'placeholder' && (
-                <span style={{...styles.infoTag, backgroundColor: '#e0f2fe'}}>📄 Placeholder</span>
-              )}
-            </div>
+        {/* Barra de busca */}
+        <div style={styles.searchContainer}>
+          <input
+            type="text"
+            placeholder="🔍 Buscar por personagem, gênero, texto..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={styles.searchInput}
+          />
+          {searchTerm && (
+            <button 
+              onClick={() => setSearchTerm('')}
+              style={styles.clearButton}
+            >
+              ✕
+            </button>
           )}
         </div>
         
-        {/* Container da imagem com tratamento de erro */}
-        <div style={styles.imageContainer} id={`image-container-${currentStory.id}`}>
-          {currentStory.hasImageData ? (
-            // Tentar mostrar imagem do banco
-            <img
-              src={`data:image/png;base64,${currentStory.illustrationb64}`}
-              alt="Ilustração da história"
-              style={styles.image}
-              onError={(e) => {
-                console.log('❌ Erro ao carregar imagem do banco');
-                
-                // Esconder imagem quebrada
-                e.target.style.display = 'none';
-                
-                // Mostrar mensagem explicativa
-                const container = document.getElementById(`image-container-${currentStory.id}`);
-                if (container) {
-                  container.innerHTML = `
-                    <div style="
-                      padding: 30px;
-                      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-                      border-radius: 10px;
-                      text-align: center;
-                      border: 2px dashed #f59e0b;
-                      color: #92400e;
-                    ">
-                      <div style="font-size: 40px; margin-bottom: 15px;">⚡</div>
-                      <h4 style="margin-top: 0; margin-bottom: 10px;">Imagem Otimizada para Armazenamento</h4>
-                      <p style="margin-bottom: 10px; line-height: 1.5;">
-                        Esta imagem foi <strong>comprimida para caber no banco de dados</strong> 
-                        (${currentStory.imageSizeKB}KB).
-                      </p>
-                      <p style="margin-bottom: 15px; line-height: 1.5;">
-                        <small>
-                          <em>
-                            🔧 Para ver a imagem completa, visualize-a durante a geração.<br/>
-                            📊 Essa otimização economiza espaço e melhora a performance.
-                          </em>
-                        </small>
-                      </p>
-                      <div style="
-                        background-color: rgba(255, 255, 255, 0.7);
-                        padding: 10px;
-                        border-radius: 6px;
-                        margin-top: 15px;
-                        font-size: 13px;
-                      ">
-                        <p style="margin: 0;">
-                          <strong>💡 Dica:</strong> As imagens são salvas em baixa resolução 
-                          para garantir que todas as histórias possam ser armazenadas.
-                        </p>
-                      </div>
-                    </div>
-                  `;
-                }
+        {searchTerm && (
+          <div style={styles.searchResults}>
+            {filteredStories.length} resultado{filteredStories.length !== 1 ? 's' : ''} para "{searchTerm}"
+          </div>
+        )}
+      </header>
+
+      {/* Controles de navegação */}
+      <div style={styles.navigationPanel}>
+        <div style={styles.navInfo}>
+          <div style={styles.storyCounter}>
+            <span style={styles.counterText}>
+              <strong>História {currentStoryIndex + 1} de {filteredStories.length}</strong>
+              <span style={styles.storyId}>ID: {currentStory.id}</span>
+            </span>
+            <div style={styles.dateInfo}>
+              <span style={styles.dateIcon}>📅</span>
+              {currentStory.displayDate} às {currentStory.displayTime}
+            </div>
+          </div>
+          
+          <div style={styles.navButtons}>
+            <button 
+              onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
+              disabled={currentStoryIndex === 0}
+              style={{
+                ...styles.navButton,
+                ...(currentStoryIndex === 0 && styles.navButtonDisabled)
               }}
-              onLoad={() => {
-                console.log('✅ Imagem carregada com sucesso do banco');
+            >
+              ← Anterior
+            </button>
+            
+            <select
+              value={currentStoryIndex}
+              onChange={(e) => setCurrentStoryIndex(Number(e.target.value))}
+              style={styles.storySelector}
+            >
+              {filteredStories.map((story, index) => (
+                <option key={story.id} value={index}>
+                  #{story.id} - {story.title.substring(0, 40)}...
+                </option>
+              ))}
+            </select>
+            
+            <button 
+              onClick={() => setCurrentStoryIndex(Math.min(filteredStories.length - 1, currentStoryIndex + 1))}
+              disabled={currentStoryIndex === filteredStories.length - 1}
+              style={{
+                ...styles.navButton,
+                ...(currentStoryIndex === filteredStories.length - 1 && styles.navButtonDisabled)
               }}
-            />
-          ) : (
-            // Sem imagem
-            <div style={styles.noImageBox}>
-              <div style={{fontSize: '50px', marginBottom: '15px', opacity: 0.5}}>📷</div>
-              <h4>Nenhuma imagem salva</h4>
-              <p style={styles.infoText}>
-                Esta história não possui ilustração armazenada no banco de dados.
+            >
+              Próxima →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Informações do usuário */}
+      <section style={styles.infoSection}>
+        <h2 style={styles.sectionTitle}>
+          <span style={styles.sectionIcon}>📋</span>
+          Informações fornecidas
+        </h2>
+        
+        <div style={styles.infoGrid}>
+          <InfoCard 
+            icon="👤" 
+            label="Personagem Principal" 
+            value={currentStory.mainCharacter}
+            color="#3b82f6"
+          />
+          <InfoCard 
+            icon="📖" 
+            label="Enredo" 
+            value={currentStory.plot}
+            color="#10b981"
+          />
+          <InfoCard 
+            icon="🎭" 
+            label="Desfecho" 
+            value={currentStory.ending}
+            color="#f59e0b"
+          />
+          <InfoCard 
+            icon="🎨" 
+            label="Gênero" 
+            value={currentStory.genre}
+            color="#8b5cf6"
+          />
+          <InfoCard 
+            icon="📚" 
+            label="Tipo de Literatura" 
+            value={currentStory.literature}
+            color="#ef4444"
+          />
+        </div>
+      </section>
+
+      {/* Texto da história */}
+      <section style={styles.storySection}>
+        <div style={styles.sectionHeader}>
+          <h2 style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>📖</span>
+            História Gerada
+            <span style={styles.wordCount}>
+              📝 {currentStory.wordCount} palavras
+            </span>
+          </h2>
+          <div style={styles.textStats}>
+            <span style={styles.statBadge}>
+              {currentStory.text.length} caracteres
+            </span>
+            {currentStory.extractedFromText && (
+              <span style={styles.structuredBadge}>
+                Dados estruturados
+              </span>
+            )}
+          </div>
+        </div>
+        
+        <div style={styles.storyContent}>
+          <div style={styles.storyText}>
+            {currentStory.cleanStory.split('\n').map((paragraph, index) => (
+              paragraph.trim() ? (
+                <p key={index} style={styles.paragraph}>
+                  {paragraph}
+                </p>
+              ) : (
+                <br key={index} />
+              )
+            ))}
+          </div>
+          
+          <div style={styles.storyActions}>
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(currentStory.cleanStory);
+                alert('Texto copiado!');
+              }}
+              style={styles.copyButton}
+            >
+              📋 Copiar texto
+            </button>
+            <button 
+              onClick={() => window.print()}
+              style={styles.printButton}
+            >
+              🖨️ Imprimir
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Ilustração */}
+      <section style={styles.illustrationSection}>
+        <div style={styles.sectionHeader}>
+          <h2 style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>🎨</span>
+            Ilustração
+            {currentStory.hasImage && (
+              <span style={styles.storageBadgeHeader}>
+                ☁️ Armazenada no Vercel Blob
+              </span>
+            )}
+          </h2>
+        </div>
+        
+        <div style={styles.illustrationContainer}>
+          <StoryImage
+            imageUrl={currentStory.illustrationPath}
+            storyId={currentStory.id}
+            title={currentStory.title}
+            onError={handleImageError(currentStory.id)}
+          />
+          
+          {!currentStory.hasImage && (
+            <div style={styles.noImageInfo}>
+              <p>Esta história não possui uma ilustração associada.</p>
+              <p style={styles.noImageHint}>
+                <small>
+                  As ilustrações são geradas pelo DALL-E e armazenadas no Vercel Blob Storage.
+                  Pode ocorrer falha na geração ou no upload.
+                </small>
               </p>
             </div>
           )}
         </div>
-        
-        {/* Explicação adicional */}
-        {currentStory.hasImageData && (
-          <div style={styles.imageExplanation}>
-            <p style={styles.explanationText}>
-              <small>
-                <em>
-                  ⚡ <strong>Otimização:</strong> As imagens são compactadas para economizar 
-                  espaço no banco de dados. Isso permite armazenar mais histórias e 
-                  melhorar o desempenho da aplicação.
-                </em>
-              </small>
-            </p>
-          </div>
-        )}
-      </div>
+      </section>
 
-      {/* Navegação Inferior */}
-      <div style={styles.bottomNavigation}>
-        <button 
-          onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
-          disabled={currentStoryIndex === 0}
-          style={{...styles.bottomButton, ...styles.prevButton}}
-        >
-          ◀️ História Anterior
-        </button>
+      {/* Navegação inferior */}
+      <footer style={styles.footer}>
+        <div style={styles.footerNavigation}>
+          <button 
+            onClick={() => setCurrentStoryIndex(Math.max(0, currentStoryIndex - 1))}
+            disabled={currentStoryIndex === 0}
+            style={styles.footerNavButton}
+          >
+            ◀️ História Anterior
+          </button>
+          
+          <div style={styles.footerActions}>
+            <a href="/" style={styles.footerLink}>
+              🏠 Página Inicial
+            </a>
+            <a href="/story-generator" style={styles.generateLink}>
+              ✨ Nova História
+            </a>
+          </div>
+          
+          <button 
+            onClick={() => setCurrentStoryIndex(Math.min(filteredStories.length - 1, currentStoryIndex + 1))}
+            disabled={currentStoryIndex === filteredStories.length - 1}
+            style={styles.footerNavButton}
+          >
+            Próxima História ▶️
+          </button>
+        </div>
         
-        <a href="/" style={{...styles.bottomLink, ...styles.homeLink}}>
-          🏠 Página Inicial
-        </a>
-        
-        <a href="/story-generator" style={{...styles.bottomLink, ...styles.generatorLink}}>
-          ✨ Novo Texto
-        </a>
-        
-        <button 
-          onClick={() => setCurrentStoryIndex(Math.min(stories.length - 1, currentStoryIndex + 1))}
-          disabled={currentStoryIndex === stories.length - 1}
-          style={{...styles.bottomButton, ...styles.nextButton}}
-        >
-          Próxima História ▶️
-        </button>
-      </div>
+        <div style={styles.footerInfo}>
+          <p style={styles.footerText}>
+            <small>
+              📊 {filteredStories.length} histórias visíveis • 
+              🕐 Atualizado: {new Date(timestamp).toLocaleTimeString('pt-BR')} •
+              💾 Armazenamento: Vercel Blob + Neon DB
+            </small>
+          </p>
+        </div>
+      </footer>
 
       {/* Estilos inline */}
       <style jsx>{`
-        .container {
-          max-width: 1000px;
-          margin: 0 auto;
-          padding: 20px;
-        }
-        
         @media (max-width: 768px) {
-          .container {
-            padding: 15px;
-          }
-          
           .info-grid {
             grid-template-columns: 1fr !important;
           }
           
-          .bottom-navigation {
+          .nav-buttons {
             flex-direction: column;
             gap: 10px;
           }
           
-          .image-badge {
-            display: block;
-            margin-top: 5px;
+          .story-selector {
+            width: 100% !important;
+          }
+          
+          .footer-navigation {
+            flex-direction: column;
+            gap: 15px;
+          }
+        }
+        
+        @media print {
+          .no-print {
+            display: none !important;
+          }
+          
+          .story-content {
+            box-shadow: none !important;
+            border: 1px solid #ddd !important;
           }
         }
       `}</style>
@@ -492,333 +698,661 @@ export default function StoriesPage({ stories, error, timestamp }) {
 
 // Estilos como objeto JavaScript
 const styles = {
-  container: {
-    maxWidth: '1000px',
+  pageContainer: {
+    maxWidth: '1200px',
     margin: '0 auto',
     padding: '20px',
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     backgroundColor: '#ffffff',
-    borderRadius: '12px',
-    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
+    minHeight: '100vh',
+    color: '#1f2937',
   },
-  title: {
-    textAlign: 'center',
-    color: '#2c3e50',
+  
+  // Header
+  header: {
     marginBottom: '30px',
-    fontSize: '2.2rem',
-    fontWeight: '700',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    paddingBottom: '15px',
-    borderBottom: '2px solid #f0f0f0',
+    paddingBottom: '20px',
+    borderBottom: '2px solid #e5e7eb',
   },
-  counterBox: {
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    borderRadius: '10px',
-    padding: '15px 20px',
-    marginBottom: '25px',
+  
+  libraryTitle: {
+    fontSize: '2.5rem',
+    fontWeight: '800',
+    color: '#1e293b',
+    marginBottom: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    flexWrap: 'wrap',
+  },
+  
+  counterBadge: {
+    fontSize: '1rem',
+    fontWeight: '600',
+    backgroundColor: '#3b82f6',
     color: 'white',
+    padding: '5px 15px',
+    borderRadius: '20px',
+    marginLeft: '10px',
+  },
+  
+  searchContainer: {
+    position: 'relative',
+    maxWidth: '600px',
+    marginBottom: '15px',
+  },
+  
+  searchInput: {
+    width: '100%',
+    padding: '12px 45px 12px 15px',
+    fontSize: '16px',
+    border: '2px solid #d1d5db',
+    borderRadius: '10px',
+    outline: 'none',
+    transition: 'all 0.3s ease',
+  },
+  
+  clearButton: {
+    position: 'absolute',
+    right: '15px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'none',
+    border: 'none',
+    fontSize: '18px',
+    cursor: 'pointer',
+    color: '#6b7280',
+  },
+  
+  searchResults: {
+    fontSize: '14px',
+    color: '#6b7280',
+    marginTop: '10px',
+  },
+  
+  // Navegação
+  navigationPanel: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    padding: '20px',
+    marginBottom: '30px',
+    border: '1px solid #e2e8f0',
+  },
+  
+  navInfo: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: '15px',
-  },
-  counterInfo: {
-    display: 'flex',
-    alignItems: 'center',
     gap: '20px',
-    flexWrap: 'wrap',
   },
+  
+  storyCounter: {
+    flex: 1,
+  },
+  
   counterText: {
-    fontSize: '16px',
+    fontSize: '18px',
     fontWeight: '600',
+    color: '#1e293b',
     display: 'flex',
     flexDirection: 'column',
     gap: '5px',
   },
-  imageBadge: {
-    fontSize: '12px',
-    padding: '3px 8px',
-    borderRadius: '4px',
-    display: 'inline-block',
-    background: 'rgba(255, 255, 255, 0.2)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-  },
-  placeholderBadge: {
-    background: 'rgba(96, 165, 250, 0.3)',
-    borderColor: 'rgba(96, 165, 250, 0.5)',
-  },
-  corruptedBadge: {
-    background: 'rgba(245, 158, 11, 0.3)',
-    borderColor: 'rgba(245, 158, 11, 0.5)',
-  },
-  counterButtons: {
-    display: 'flex',
-    gap: '10px',
-  },
-  navButton: {
-    padding: '6px 15px',
-    background: 'rgba(255, 255, 255, 0.2)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    borderRadius: '6px',
-    color: 'white',
-    cursor: 'pointer',
+  
+  storyId: {
     fontSize: '14px',
-    transition: 'all 0.3s ease',
-    backdropFilter: 'blur(10px)',
+    color: '#6b7280',
+    fontWeight: '400',
   },
-  timestamp: {
+  
+  dateInfo: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     fontSize: '14px',
-    background: 'rgba(255, 255, 255, 0.1)',
-    padding: '6px 12px',
-    borderRadius: '6px',
+    color: '#6b7280',
+    marginTop: '5px',
   },
   
-  // SEÇÃO DE INFORMAÇÕES DO USUÁRIO
-  userInfoSection: {
-    background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-    borderRadius: '12px',
-    padding: '25px',
-    marginBottom: '30px',
-    borderLeft: '6px solid #667eea',
-    boxShadow: '0 4px 15px rgba(0,0,0,0.05)',
+  dateIcon: {
+    fontSize: '16px',
   },
+  
+  navButtons: {
+    display: 'flex',
+    gap: '15px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  
+  navButton: {
+    padding: '10px 20px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+    transition: 'all 0.3s ease',
+    minWidth: '100px',
+  },
+  
+  navButtonDisabled: {
+    backgroundColor: '#d1d5db',
+    cursor: 'not-allowed',
+    opacity: 0.6,
+  },
+  
+  storySelector: {
+    padding: '10px 15px',
+    border: '2px solid #d1d5db',
+    borderRadius: '8px',
+    fontSize: '14px',
+    backgroundColor: 'white',
+    minWidth: '200px',
+    cursor: 'pointer',
+  },
+  
+  // Seção de informações
+  infoSection: {
+    marginBottom: '30px',
+  },
+  
   sectionTitle: {
-    color: '#2d3748',
-    marginTop: '0',
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    color: '#1e293b',
     marginBottom: '20px',
-    fontSize: '1.4rem',
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
   },
-  infoIcon: {
-    fontSize: '18px',
+  
+  sectionIcon: {
+    fontSize: '24px',
   },
+  
   infoGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
     gap: '20px',
   },
+  
   infoCard: {
-    background: 'white',
-    borderRadius: '10px',
-    padding: '18px',
-    boxShadow: '0 3px 10px rgba(0,0,0,0.08)',
-    border: '1px solid #e2e8f0',
-    transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    padding: '20px',
+    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+    border: '1px solid #e5e7eb',
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
   },
+  
   infoHeader: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    marginBottom: '12px',
-    paddingBottom: '10px',
-    borderBottom: '1px solid #f0f0f0',
+    gap: '12px',
+    marginBottom: '15px',
   },
+  
+  infoIcon: {
+    fontSize: '20px',
+    width: '40px',
+    height: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '10px',
+  },
+  
   infoLabel: {
-    fontWeight: '700',
-    color: '#4a5568',
+    fontWeight: '600',
+    color: '#4b5563',
     fontSize: '14px',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
-  infoValue: {
-    color: '#2d3748',
-    fontSize: '16px',
-    lineHeight: '1.5',
-    margin: '0',
-    wordBreak: 'break-word',
+  
+  infoValueContainer: {
+    minHeight: '60px',
   },
   
-  // TEXTO GERADO
-  storySection: {
-    marginBottom: '35px',
+  infoValue: {
+    color: '#1f2937',
+    fontSize: '16px',
+    lineHeight: '1.6',
+    margin: '0',
   },
+  
+  // Seção da história
+  storySection: {
+    marginBottom: '30px',
+  },
+  
   sectionHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '15px',
+    marginBottom: '20px',
     flexWrap: 'wrap',
     gap: '15px',
   },
-  sectionIcon: {
-    fontSize: '20px',
-  },
+  
   wordCount: {
-    background: '#e8f4fd',
-    padding: '6px 12px',
-    borderRadius: '20px',
     fontSize: '14px',
-    color: '#2c5282',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
-  storyBox: {
-    background: '#f8fafc',
-    borderRadius: '10px',
-    padding: '25px',
-    border: '1px solid #e2e8f0',
-  },
-  storyText: {
-    fontSize: '17px',
-    lineHeight: '1.8',
-    color: '#2d3748',
-    whiteSpace: 'pre-line',
-    margin: '0',
-    fontFamily: "'Georgia', serif",
+    fontWeight: '600',
+    color: '#6b7280',
+    marginLeft: '15px',
   },
   
-  // SEÇÃO DE IMAGEM
-  imageSection: {
-    marginBottom: '35px',
-  },
-  imageInfo: {
+  textStats: {
     display: 'flex',
     gap: '10px',
-    flexWrap: 'wrap',
   },
-  infoTag: {
-    background: '#e9ecef',
-    padding: '4px 10px',
-    borderRadius: '15px',
+  
+  statBadge: {
+    backgroundColor: '#e0f2fe',
+    color: '#0369a1',
+    padding: '5px 10px',
+    borderRadius: '6px',
     fontSize: '12px',
-    color: '#495057',
     fontWeight: '600',
   },
-  imageContainer: {
-    textAlign: 'center',
-    minHeight: '200px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+  
+  structuredBadge: {
+    backgroundColor: '#dcfce7',
+    color: '#166534',
+    padding: '5px 10px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '600',
   },
+  
+  storyContent: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    padding: '30px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+  },
+  
+  storyText: {
+    fontSize: '18px',
+    lineHeight: '1.8',
+    color: '#1f2937',
+    marginBottom: '30px',
+  },
+  
+  paragraph: {
+    marginBottom: '20px',
+    textAlign: 'justify',
+  },
+  
+  storyActions: {
+    display: 'flex',
+    gap: '15px',
+    justifyContent: 'flex-end',
+  },
+  
+  copyButton: {
+    padding: '10px 20px',
+    backgroundColor: '#10b981',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  printButton: {
+    padding: '10px 20px',
+    backgroundColor: '#6b7280',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  // Seção de ilustração
+  illustrationSection: {
+    marginBottom: '40px',
+  },
+  
+  storageBadgeHeader: {
+    fontSize: '12px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    padding: '4px 10px',
+    borderRadius: '6px',
+    marginLeft: '15px',
+  },
+  
+  illustrationContainer: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    padding: '20px',
+    border: '1px solid #e2e8f0',
+  },
+  
+  imageWrapper: {
+    position: 'relative',
+    textAlign: 'center',
+    minHeight: '300px',
+  },
+  
+  imageLoading: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    textAlign: 'center',
+  },
+  
+  spinner: {
+    width: '40px',
+    height: '40px',
+    border: '3px solid #e5e7eb',
+    borderTopColor: '#3b82f6',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+    margin: '0 auto 15px',
+  },
+  
+  loadingText: {
+    color: '#6b7280',
+  },
+  
   image: {
     maxWidth: '100%',
     maxHeight: '400px',
     height: 'auto',
     borderRadius: '8px',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-    border: '1px solid #ddd',
-    backgroundColor: '#f8fafc',
+    boxShadow: '0 8px 25px rgba(0, 0, 0, 0.1)',
+    margin: '0 auto',
   },
-  noImageBox: {
+  
+  imageError: {
     padding: '40px',
-    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+    backgroundColor: '#fef2f2',
     borderRadius: '10px',
+    border: '2px dashed #ef4444',
     textAlign: 'center',
-    color: '#6c757d',
-    border: '2px dashed #adb5bd',
-    width: '100%',
   },
-  infoText: {
-    color: '#495057',
-    lineHeight: '1.5',
+  
+  errorIcon: {
+    fontSize: '40px',
+    marginBottom: '15px',
+  },
+  
+  errorText: {
+    color: '#dc2626',
+    marginBottom: '15px',
+  },
+  
+  externalLink: {
+    display: 'inline-block',
+    padding: '8px 16px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+  },
+  
+  imageFooter: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: '15px',
+    marginTop: '15px',
+  },
+  
+  storageBadge: {
+    backgroundColor: '#dbeafe',
+    color: '#1e40af',
+    padding: '4px 12px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '600',
+  },
+  
+  viewOriginal: {
+    color: '#6b7280',
+    textDecoration: 'none',
+    fontSize: '16px',
+    padding: '5px',
+  },
+  
+  noImagePlaceholder: {
+    padding: '40px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '10px',
+    border: '2px dashed #d1d5db',
+    textAlign: 'center',
+  },
+  
+  placeholderIcon: {
+    fontSize: '40px',
+    marginBottom: '15px',
+    opacity: 0.5,
+  },
+  
+  placeholderText: {
+    color: '#6b7280',
+  },
+  
+  noImageInfo: {
+    textAlign: 'center',
+    padding: '20px',
+    color: '#6b7280',
+  },
+  
+  noImageHint: {
+    color: '#9ca3af',
     maxWidth: '500px',
     margin: '10px auto',
   },
-  imageExplanation: {
-    marginTop: '15px',
-    padding: '15px',
-    backgroundColor: '#f8f9fa',
-    borderRadius: '8px',
-    borderLeft: '4px solid #6c757d',
-  },
-  explanationText: {
-    margin: '0',
-    color: '#495057',
-    lineHeight: '1.5',
-  },
   
-  // NAVEGAÇÃO INFERIOR
-  bottomNavigation: {
-    display: 'grid',
-    gridTemplateColumns: '1fr auto auto 1fr',
-    gap: '15px',
+  // Footer
+  footer: {
     marginTop: '40px',
-    alignItems: 'center',
-  },
-  bottomButton: {
-    padding: '12px 25px',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    fontSize: '15px',
-    fontWeight: '600',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    transition: 'all 0.3s ease',
-    justifyContent: 'center',
-  },
-  prevButton: {
-    background: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)',
-    color: 'white',
-    justifySelf: 'start',
-  },
-  nextButton: {
-    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    color: 'white',
-    justifySelf: 'end',
-  },
-  bottomLink: {
-    padding: '12px 25px',
-    borderRadius: '10px',
-    textDecoration: 'none',
-    fontWeight: '600',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    transition: 'all 0.3s ease',
-  },
-  homeLink: {
-    background: '#28a745',
-    color: 'white',
-  },
-  generatorLink: {
-    background: '#ffc107',
-    color: '#212529',
+    paddingTop: '20px',
+    borderTop: '2px solid #e5e7eb',
   },
   
-  // ESTILOS PARA ERROS
-  errorBox: {
-    backgroundColor: '#fff3cd',
-    padding: '20px',
-    borderRadius: '8px',
-    margin: '20px 0',
-    border: '1px solid #ffc107',
-    textAlign: 'center',
+  footerNavigation: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+    gap: '15px',
   },
-  emptyBox: {
+  
+  footerNavButton: {
+    padding: '12px 25px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+    minWidth: '150px',
+  },
+  
+  footerActions: {
+    display: 'flex',
+    gap: '15px',
+  },
+  
+  footerLink: {
+    padding: '12px 25px',
+    backgroundColor: '#10b981',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  generateLink: {
+    padding: '12px 25px',
+    backgroundColor: '#f59e0b',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  footerInfo: {
     textAlign: 'center',
-    padding: '40px 20px',
-    backgroundColor: '#e9ecef',
-    borderRadius: '10px',
+    padding: '20px',
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+  },
+  
+  footerText: {
+    color: '#6b7280',
+    margin: '0',
+  },
+  
+  // Páginas de erro/vazia
+  errorPage: {
+    textAlign: 'center',
+    padding: '50px 20px',
+  },
+  
+  errorTitle: {
+    fontSize: '2.5rem',
+    marginBottom: '30px',
+  },
+  
+  errorMessage: {
+    maxWidth: '600px',
+    margin: '0 auto',
+    backgroundColor: '#fef2f2',
+    padding: '30px',
+    borderRadius: '12px',
+    border: '1px solid #fecaca',
+  },
+  
+  errorHint: {
+    color: '#6b7280',
+    marginTop: '15px',
+  },
+  
+  errorActions: {
+    display: 'flex',
+    gap: '15px',
+    justifyContent: 'center',
+    marginTop: '25px',
+  },
+  
+  retryButton: {
+    padding: '12px 25px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  homeButton: {
+    padding: '12px 25px',
+    backgroundColor: '#6b7280',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  emptyLibrary: {
+    textAlign: 'center',
+    padding: '50px 20px',
+  },
+  
+  emptyMessage: {
+    maxWidth: '500px',
+    margin: '0 auto',
+    padding: '40px',
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    border: '2px dashed #d1d5db',
+  },
+  
+  emptyIcon: {
+    fontSize: '60px',
+    marginBottom: '20px',
+    opacity: 0.7,
+  },
+  
+  timestamp: {
+    color: '#6b7280',
+    fontSize: '14px',
+    marginTop: '15px',
+  },
+  
+  emptyActions: {
+    display: 'flex',
+    gap: '15px',
+    justifyContent: 'center',
     marginTop: '30px',
   },
-  button: {
+  
+  createButton: {
+    padding: '12px 25px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  homeLink: {
+    padding: '12px 25px',
+    backgroundColor: '#9ca3af',
+    color: 'white',
+    textDecoration: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  
+  noResults: {
+    textAlign: 'center',
+    padding: '40px',
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    marginTop: '30px',
+  },
+  
+  clearSearchButton: {
     padding: '10px 20px',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#6b7280',
     color: 'white',
     border: 'none',
-    borderRadius: '5px',
+    borderRadius: '6px',
     cursor: 'pointer',
     marginTop: '15px',
   },
-  createButton: {
-    display: 'inline-block',
-    padding: '10px 20px',
-    backgroundColor: '#198754',
-    color: 'white',
-    textDecoration: 'none',
-    borderRadius: '5px',
-    marginTop: '20px',
-  },
 };
+
+// Adicionar animação CSS
+const styleSheet = document.createElement('style');
+styleSheet.textContent = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(styleSheet);
