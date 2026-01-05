@@ -13,6 +13,8 @@ const CONFIG = {
   MAX_STORY_CHARS: 8000,          // Limite de caracteres para o texto
   MAX_RETRIES: 2,                 // Tentativas para gerar imagem
   RETRY_DELAY: 1000,              // Delay entre tentativas (ms)
+  QUALITY: "standard",      
+  STYLE: "natural",         
 };
 
 // ==================== FUNÇÕES AUXILIARES ====================
