@@ -17,6 +17,9 @@ const CONFIG = {
   STYLE: "natural",         
 };
 
+console.log('🔑 Token configurado?', !!process.env.BLOB_READ_WRITE_TOKEN);
+console.log('🔑 Token (primeiros chars):', process.env.BLOB_READ_WRITE_TOKEN?.substring(0, 10) + '...');
+
 // ==================== FUNÇÕES AUXILIARES ====================
 
 /**
