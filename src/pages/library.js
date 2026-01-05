@@ -1,4 +1,4 @@
-// pages/library.js - VERSÃO COM VERCEL BLOB STORAGE
+// pages/library.js - VERSÃO CORRIGIDA COM CSS-in-JS SEGURO
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 
@@ -111,7 +111,10 @@ function StoryImage({ imageUrl, storyId, title, onError }) {
     <div style={styles.imageWrapper}>
       {isLoading && (
         <div style={styles.imageLoading}>
-          <div style={styles.spinner}></div>
+          <div style={{
+            ...styles.spinner,
+            animation: 'spin 1s linear infinite'
+          }}></div>
           <p style={styles.loadingText}>Carregando imagem...</p>
         </div>
       )}
@@ -310,6 +313,12 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
       <div style={styles.pageContainer}>
         <Head>
           <title>Biblioteca - Erro</title>
+          <style jsx global>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
         </Head>
         
         <div style={styles.errorPage}>
@@ -343,6 +352,12 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
       <div style={styles.pageContainer}>
         <Head>
           <title>Biblioteca Vazia</title>
+          <style jsx global>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
         </Head>
         
         <div style={styles.emptyLibrary}>
@@ -374,6 +389,16 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
   if (!currentStory) {
     return (
       <div style={styles.pageContainer}>
+        <Head>
+          <title>Biblioteca - Busca</title>
+          <style jsx global>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </Head>
+        
         <h1 style={styles.libraryTitle}>📚 Biblioteca de Textos</h1>
         <div style={styles.noResults}>
           <p>Nenhuma história encontrada para "{searchTerm}"</p>
@@ -398,6 +423,45 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
       <Head>
         <title>Biblioteca - {currentStory.title}</title>
         <meta name="description" content="Biblioteca de histórias geradas com IA" />
+        {/* CSS-in-JS seguro para animações */}
+        <style jsx global>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          
+          /* Estilos responsivos */
+          @media (max-width: 768px) {
+            .info-grid-responsive {
+              grid-template-columns: 1fr !important;
+            }
+            
+            .nav-buttons-responsive {
+              flex-direction: column;
+              gap: 10px;
+            }
+            
+            .story-selector-responsive {
+              width: 100% !important;
+            }
+            
+            .footer-navigation-responsive {
+              flex-direction: column;
+              gap: 15px;
+            }
+          }
+          
+          @media print {
+            .no-print {
+              display: none !important;
+            }
+            
+            .story-content-print {
+              box-shadow: none !important;
+              border: 1px solid #ddd !important;
+            }
+          }
+        `}</style>
       </Head>
 
       {/* Cabeçalho */}
@@ -494,7 +558,7 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
           Informações fornecidas
         </h2>
         
-        <div style={styles.infoGrid}>
+        <div style={{ ...styles.infoGrid, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           <InfoCard 
             icon="👤" 
             label="Personagem Principal" 
@@ -610,7 +674,7 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
               <p>Esta história não possui uma ilustração associada.</p>
               <p style={styles.noImageHint}>
                 <small>
-                  As ilustrações são geradas pelo DALL-E e armazenadas no Vercel Blob Storage.
+                  As ilustrações são geradas pelo DALL-E 3 e armazenadas no Vercel Blob Storage.
                   Pode ocorrer falha na geração ou no upload.
                 </small>
               </p>
@@ -658,40 +722,6 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
           </p>
         </div>
       </footer>
-
-      {/* Estilos inline */}
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .info-grid {
-            grid-template-columns: 1fr !important;
-          }
-          
-          .nav-buttons {
-            flex-direction: column;
-            gap: 10px;
-          }
-          
-          .story-selector {
-            width: 100% !important;
-          }
-          
-          .footer-navigation {
-            flex-direction: column;
-            gap: 15px;
-          }
-        }
-        
-        @media print {
-          .no-print {
-            display: none !important;
-          }
-          
-          .story-content {
-            box-shadow: none !important;
-            border: 1px solid #ddd !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -876,7 +906,6 @@ const styles = {
   
   infoGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
     gap: '20px',
   },
   
@@ -1058,7 +1087,6 @@ const styles = {
     border: '3px solid #e5e7eb',
     borderTopColor: '#3b82f6',
     borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
     margin: '0 auto 15px',
   },
   
@@ -1346,13 +1374,3 @@ const styles = {
     marginTop: '15px',
   },
 };
-
-// Adicionar animação CSS
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-`;
-document.head.appendChild(styleSheet);

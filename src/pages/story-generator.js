@@ -1,4 +1,4 @@
-// pages/story-generator.js - GERADOR COM VERCEL BLOB STORAGE
+// pages/story-generator.js - VERSÃO CORRIGIDA SEM ERROS SSR
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -25,6 +25,12 @@ export default function StoryGenerator() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  
+  // Verificar se estamos no cliente
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
   
   // Efeito para simular progresso
   useEffect(() => {
@@ -113,6 +119,20 @@ export default function StoryGenerator() {
     } else {
       router.push('/library');
     }
+  };
+  
+  // Copiar texto para clipboard (apenas no cliente)
+  const copyToClipboard = (text) => {
+    if (!isClient) return;
+    
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        alert('Texto copiado para a área de transferência!');
+      })
+      .catch(err => {
+        console.error('Erro ao copiar:', err);
+        alert('Erro ao copiar texto. Tente manualmente.');
+      });
   };
   
   // Gerar nova história
@@ -212,13 +232,15 @@ export default function StoryGenerator() {
         blobUrl: data.metadata?.image?.url
       });
       
-      // Rolar para a história gerada
-      setTimeout(() => {
-        document.getElementById('generated-story')?.scrollIntoView({ 
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }, 500);
+      // Rolar para a história gerada (apenas no cliente)
+      if (isClient) {
+        setTimeout(() => {
+          document.getElementById('generated-story')?.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }, 500);
+      }
       
     } catch (error) {
       console.error('❌ Erro na geração:', error);
@@ -293,6 +315,33 @@ export default function StoryGenerator() {
       <Head>
         <title>Gerador de Texto com Ilustração</title>
         <meta name="description" content="Gere histórias criativas com ilustrações usando IA" />
+        {/* CSS-in-JS seguro para animações */}
+        <style jsx global>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          
+          /* Estilos responsivos */
+          @media (max-width: 768px) {
+            .row-responsive {
+              flex-direction: column !important;
+            }
+            
+            .form-group-half-responsive {
+              width: 100% !important;
+            }
+            
+            .button-group-responsive {
+              flex-direction: column !important;
+            }
+            
+            .result-actions-responsive {
+              flex-direction: column !important;
+              gap: 10px !important;
+            }
+          }
+        `}</style>
       </Head>
       
       {/* Cabeçalho */}
@@ -432,9 +481,9 @@ export default function StoryGenerator() {
               </div>
             </div>
             
-            <div style={styles.row}>
+            <div style={{...styles.row, display: 'flex', gap: '20px'}}>
               {/* Gênero */}
-              <div style={styles.formGroupHalf}>
+              <div style={{...styles.formGroupHalf, flex: 1}}>
                 <label htmlFor="genre" style={styles.label}>
                   <span style={styles.labelIcon}>🎨</span>
                   Gênero
@@ -463,7 +512,7 @@ export default function StoryGenerator() {
               </div>
               
               {/* Tipo de Literatura */}
-              <div style={styles.formGroupHalf}>
+              <div style={{...styles.formGroupHalf, flex: 1}}>
                 <label htmlFor="literature" style={styles.label}>
                   <span style={styles.labelIcon}>📚</span>
                   Tipo de Literatura
@@ -523,7 +572,7 @@ export default function StoryGenerator() {
               >
                 {isSubmitting ? (
                   <>
-                    <span style={styles.buttonSpinner}></span>
+                    <div style={styles.buttonSpinner}></div>
                     Gerando...
                   </>
                 ) : (
@@ -575,10 +624,7 @@ export default function StoryGenerator() {
               
               <div style={styles.resultActions}>
                 <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(story);
-                    alert('História copiada!');
-                  }}
+                  onClick={() => copyToClipboard(story)}
                   style={styles.copyButton}
                 >
                   📋 Copiar
@@ -688,40 +734,42 @@ export default function StoryGenerator() {
                       style={styles.illustrationImage}
                       onError={(e) => {
                         console.error('Erro ao carregar imagem do blob:', imageUrl);
-                        e.target.style.display = 'none';
                         
-                        // Mostrar fallback
-                        const container = e.target.parentElement;
-                        if (container) {
-                          container.innerHTML = `
-                            <div style="
-                              padding: 30px;
-                              background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-                              border-radius: 10px;
-                              text-align: center;
-                              border: 2px dashed #f59e0b;
-                              color: #92400e;
-                              width: 100%;
-                            ">
-                              <div style="font-size: 40px; margin-bottom: 15px;">☁️</div>
-                              <h4 style="margin: 0 0 10px 0;">Imagem no Vercel Blob</h4>
-                              <p style="margin-bottom: 15px;">
-                                A ilustração está armazenada no Vercel Blob Storage.
-                              </p>
-                              <a href="${imageUrl}" 
-                                 target="_blank" 
-                                 style="
-                                   display: inline-block;
-                                   padding: 8px 16px;
-                                   background: #3b82f6;
-                                   color: white;
-                                   text-decoration: none;
-                                   border-radius: 6px;
-                                 ">
-                                🔗 Abrir Imagem
-                              </a>
-                            </div>
-                          `;
+                        // Mostrar fallback (apenas no cliente)
+                        if (isClient) {
+                          const container = e.target.parentElement;
+                          if (container) {
+                            container.innerHTML = `
+                              <div style="
+                                padding: 30px;
+                                background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+                                border-radius: 10px;
+                                text-align: center;
+                                border: 2px dashed #f59e0b;
+                                color: #92400e;
+                                width: 100%;
+                              ">
+                                <div style="font-size: 40px; margin-bottom: 15px;">☁️</div>
+                                <h4 style="margin: 0 0 10px 0;">Imagem no Vercel Blob</h4>
+                                <p style="margin-bottom: 15px;">
+                                  A ilustração está armazenada no Vercel Blob Storage.
+                                </p>
+                                <a href="${imageUrl}" 
+                                   target="_blank" 
+                                   rel="noopener noreferrer"
+                                   style="
+                                     display: inline-block;
+                                     padding: 8px 16px;
+                                     background: #3b82f6;
+                                     color: white;
+                                     text-decoration: none;
+                                     border-radius: 6px;
+                                   ">
+                                  🔗 Abrir Imagem
+                                </a>
+                              </div>
+                            `;
+                          }
                         }
                       }}
                     />
@@ -784,33 +832,6 @@ export default function StoryGenerator() {
           </small>
         </p>
       </footer>
-      
-      {/* Estilos inline responsivos */}
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .row {
-            flex-direction: column;
-          }
-          
-          .form-group-half {
-            width: 100% !important;
-          }
-          
-          .button-group {
-            flex-direction: column;
-          }
-          
-          .result-actions {
-            flex-direction: column;
-            gap: 10px;
-          }
-          
-          .tech-icons {
-            flex-wrap: wrap;
-            gap: 10px;
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -1497,15 +1518,3 @@ const styles = {
     borderTop: '1px solid #e5e7eb',
   },
 };
-
-// Adicionar animação CSS para o spinner
-if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement('style');
-  styleSheet.textContent = `
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  `;
-  document.head.appendChild(styleSheet);
-}
