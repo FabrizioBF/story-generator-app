@@ -181,7 +181,7 @@ function InfoCard({ icon, label, value, color = '#3b82f6' }) {
   );
 }
 
-// Buscar dados do servidor
+// Buscar dados do servidor - VERSÃO SEM updatedAt
 export async function getServerSideProps() {
   console.log('📚 Biblioteca: Carregando histórias...');
   
@@ -209,21 +209,21 @@ export async function getServerSideProps() {
     await prisma.$queryRaw`SELECT 1`;
     console.log('✅ Conexão estabelecida com Neon DB');
 
-    // Buscar histórias (SEM updatedAt)
+    // Buscar histórias - APENAS CAMPOS QUE EXISTEM
     const stories = await prisma.story.findMany({
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
         id: true,
         text: true,
-        illustrationPath: true, // URL do Vercel Blob
+        illustrationPath: true,
         mainCharacter: true,
         plot: true,
         ending: true,
         genre: true,
         literature: true,
-        createdAt: true,
-        // updatedAt: true // REMOVIDO - campo não existe no banco ainda
+        createdAt: true
+        // NÃO INCLUIR updatedAt - campo não existe no banco
       }
     });
 
@@ -248,9 +248,8 @@ export async function getServerSideProps() {
         displayTime: new Date(story.createdAt).toLocaleTimeString('pt-BR', { 
           hour: '2-digit', 
           minute: '2-digit' 
-        }),
-        // Use createdAt como fallback para updatedAt
-        updatedAt: story.createdAt // Fallback usando createdAt
+        })
+        // Não adicionar updatedAt - usar apenas createdAt
       };
     });
     
@@ -282,7 +281,6 @@ export async function getServerSideProps() {
 // Componente principal
 export default function StoriesPage({ stories, error, timestamp, totalStories }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
-  const [imageErrors, setImageErrors] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredStories, setFilteredStories] = useState(stories);
 
@@ -414,11 +412,6 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
     );
   }
 
-  const handleImageError = (storyId) => (e) => {
-    console.log(`Imagem ${storyId} falhou ao carregar`);
-    setImageErrors(prev => ({ ...prev, [storyId]: true }));
-  };
-
   return (
     <div style={styles.pageContainer}>
       <Head>
@@ -449,17 +442,6 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
             .footer-navigation-responsive {
               flex-direction: column;
               gap: 15px;
-            }
-          }
-          
-          @media print {
-            .no-print {
-              display: none !important;
-            }
-            
-            .story-content-print {
-              box-shadow: none !important;
-              border: 1px solid #ddd !important;
             }
           }
         `}</style>
@@ -667,7 +649,6 @@ export default function StoriesPage({ stories, error, timestamp, totalStories })
             imageUrl={currentStory.illustrationPath}
             storyId={currentStory.id}
             title={currentStory.title}
-            onError={handleImageError(currentStory.id)}
           />
           
           {!currentStory.hasImage && (
