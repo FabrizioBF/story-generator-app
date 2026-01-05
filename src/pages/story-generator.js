@@ -542,7 +542,7 @@ export default function StoryGenerator() {
                   <option value="satire">Sátira</option>
                   <option value="parable">Parábola</option>
                   <option value="legends">Lendas</option>
-                  <option value="literatura clássica">Clássica</option>
+                  <option value="classical literature">Clássica</option>
                   <option value="modernist literature">Modernista</option>
                   <option value="contemporary literature">Contemporânea</option>
                   <option value="cordel literature">Cordel</option>
